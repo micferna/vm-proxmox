@@ -3,6 +3,7 @@ import proxmoxer
 import os
 from dotenv import load_dotenv
 import logging
+import random
 
 # Configuration du journal
 logging.basicConfig(level=logging.DEBUG)
@@ -32,6 +33,17 @@ def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
         logger.error(f"Erreur lors de la mise à jour de la configuration réseau: {e}")
         raise
 
+# Fonction pour générer un identifiant unique pour la nouvelle VM
+def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
+    while True:
+        vmid = random.randint(min_vmid, max_vmid)
+        try:
+            proxmox.nodes(node).qemu(vmid).status.current.get()
+            logger.debug(f"vmid {vmid} existe déjà, en générant un nouveau...")
+        except proxmoxer.ResourceException:
+            logger.debug(f"vmid {vmid} généré avec succès.")
+            return vmid
+
 @app.route('/clone_vm', methods=['POST'])
 def clone_vm():
     data = request.json
@@ -40,9 +52,16 @@ def clone_vm():
     node = os.getenv('PROXMOX_NODE')
 
     try:
-        # Cloner la VM
+        # Générer un nouvel identifiant unique pour la VM
+        new_vm_id = generate_unique_vmid(proxmox, node)
+        logger.debug(f"new_vm_id généré : {new_vm_id}")
+
+        # Utiliser le préfixe "machine-VMID" pour le champ "new_vm_name"
+        new_vm_name = f"machine-{new_vm_id}"
+
+        # Cloner la VM en spécifiant newid (utilisant l'identifiant numérique)
         logger.debug("Début du processus de clonage...")
-        clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=data['new_vm_id'], name=data['new_vm_name'])
+        clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
         logger.debug(f"Réponse du clonage: {clone_response}")
 
         # Mise à jour de la configuration CPU et RAM de la VM clonée
@@ -50,24 +69,24 @@ def clone_vm():
             'cores': data.get('cpu'),
             'memory': data.get('ram')
         }
-        update_vm_config_response = proxmox.nodes(node).qemu(data['new_vm_id']).config.put(**vm_config)
+        update_vm_config_response = proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
         logger.debug(f"Réponse de la mise à jour de la configuration VM (CPU/RAM): {update_vm_config_response}")
 
         # Redimensionnement du disque (si spécifié)
         disk_to_resize = data.get('disk_type', None)
         new_size = data.get('disk_size', None)
         if disk_to_resize and new_size:
-            resize_response = proxmox.nodes(node).qemu(data['new_vm_id']).resize.put(disk=disk_to_resize, size=new_size)
+            resize_response = proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=disk_to_resize, size=new_size)
             logger.debug(f"Réponse du redimensionnement du disque: {resize_response}")
 
         # Mise à jour de la configuration réseau de la VM clonée
         ipv4_config = f"{data['ipv4']}/24,gw={data['gateway_ipv4']}"
         ipv6_config = f"{data['ipv6']},gw6={data['gateway_ipv6']}"
-        network_update_response = update_vm_network_config(proxmox, node, data['new_vm_id'], ipv4_config, ipv6_config)
+        network_update_response = update_vm_network_config(proxmox, node, new_vm_id, ipv4_config, ipv6_config)
 
         # Démarrer la VM si demandé
         if data.get('start_vm'):
-            start_vm_response = proxmox.nodes(node).qemu(data['new_vm_id']).status.start.post()
+            start_vm_response = proxmox.nodes(node).qemu(new_vm_id).status.start.post()
             logger.debug(f"Réponse du démarrage de la VM: {start_vm_response}")
 
         return jsonify({
