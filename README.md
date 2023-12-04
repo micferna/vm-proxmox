@@ -1,3 +1,9 @@
+![Logo Discord](https://zupimages.net/up/23/26/rumo.png)
+[Rejoignez le Discord !](https://discord.gg/rSfTxaW)
+
+[![Utilisateurs en ligne](https://img.shields.io/discord/347412941630341121?style=flat-square&logo=discord&colorB=7289DA)](https://discord.gg/347412941630341121)
+
+---
 ### Cloner une VM
 ```bash
 curl -X POST http://localhost:5000/clone_vm \
