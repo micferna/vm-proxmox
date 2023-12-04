@@ -16,3 +16,7 @@ curl -X POST http://localhost:5000/clone_vm \
 	   "start_vm": true
          }'
 ```
+
+```bash
+curl -X DELETE "http://localhost:5000/delete_vm?vm_id=101"
+```
