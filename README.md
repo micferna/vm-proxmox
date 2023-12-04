@@ -24,6 +24,25 @@ curl -X POST http://localhost:5000/clone_vm \
          }'
 ```
 
+### Update une VM
+### Chaque paramettre est optionnel pour les modifications
+```bash
+curl -X POST [URL_DU_SERVEUR_API]/update_vm_config \
+     -H "Content-Type: application/json" \
+     -d '{
+           "vm_id": "ID_DE_LA_VM",
+           "cpu": "NB_DE_CORES_CPU",
+           "ram": "TAILLE_DE_LA_RAM",
+           "disk": "TYPE_ET_TAILLE_DU_DISQUE",
+           "ipv4": "ADRESSE_IPV4",
+           "ipv6": "ADRESSE_IPV6",
+           "gateway_ipv4": "PASSERELLE_IPV4",
+           "gateway_ipv6": "PASSERELLE_IPV6"
+         }'
+```
+
+
+
 ### Suprimer une VM
 ```bash
 curl -X DELETE "http://localhost:5000/delete_vm?vm_id=101"

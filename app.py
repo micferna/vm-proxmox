@@ -86,14 +86,36 @@ def update_vm_config():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
-    config = {
-        'cores': data['cpu'],
-        'memory': data['ram'],
-        'disk': data['disk'],
-        'net0': f"virtio,bridge=vmbr0,ip={data['ipv4']}/24,gw={data['ipv4'].rsplit('.', 1)[0]}.1,ip6={data['ipv6']}"
-    }
-    response = proxmox.nodes(node).qemu(data['vm_id']).config.put(**config)
-    return jsonify(response)
+
+    try:
+        # Vérifier l'état de la VM
+        vm_status = proxmox.nodes(node).qemu(data['vm_id']).status.current.get()
+        vm_was_running = vm_status['status'] == 'running'
+
+        # Arrêter la VM si elle est en cours d'exécution
+        if vm_was_running:
+            proxmox.nodes(node).qemu(data['vm_id']).status.stop.post()
+            # Attendre l'arrêt complet de la VM (ajouter ici une logique d'attente)
+
+        # Effectuer les modifications de configuration
+        vm_config = {
+            'cores': data['cpu'],
+            'memory': data['ram'],
+            'disk': data['disk'],
+            'net0': f"virtio,bridge=vmbr0,ip={data['ipv4']}/24,gw={data['ipv4'].rsplit('.', 1)[0]}.1,ip6={data['ipv6']}"
+        }
+        update_vm_config_response = proxmox.nodes(node).qemu(data['vm_id']).config.put(**vm_config)
+
+        # Redémarrer la VM si elle était en cours d'exécution
+        if vm_was_running:
+            proxmox.nodes(node).qemu(data['vm_id']).status.start.post()
+
+        return jsonify(update_vm_config_response)
+
+    except Exception as e:
+        logger.error(f"Erreur lors de la mise à jour de la configuration de la VM: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/delete_vm', methods=['DELETE'])
 def delete_vm():
