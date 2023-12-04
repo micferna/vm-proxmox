@@ -4,6 +4,9 @@ import os
 from dotenv import load_dotenv
 import logging
 import random
+import threading
+import time
+import uuid
 
 # Configuration du journal
 logging.basicConfig(level=logging.DEBUG)
@@ -13,6 +16,9 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 app = Flask(__name__)
+
+# Stockage des tâches asynchrones
+tasks = {}
 
 def get_proxmox_api():
     host = os.getenv('PROXMOX_HOST')
@@ -25,7 +31,6 @@ def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
         ipconfig0 = f"ip={ipv4_config}"
         if ipv6_config:
             ipconfig0 += f",ip6={ipv6_config}"
-
         response = proxmox.nodes(node).qemu(vmid).config.put(ipconfig0=ipconfig0)
         logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
         return response
@@ -33,7 +38,6 @@ def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
         logger.error(f"Erreur lors de la mise à jour de la configuration réseau: {e}")
         raise
 
-# Fonction pour générer un identifiant unique pour la nouvelle VM
 def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
     while True:
         vmid = random.randint(min_vmid, max_vmid)
@@ -44,130 +48,96 @@ def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
             logger.debug(f"vmid {vmid} généré avec succès.")
             return vmid
 
+def async_task_wrapper(task_id, func, *args, **kwargs):
+    try:
+        func(*args, **kwargs)
+        tasks[task_id] = 'Completed'
+    except Exception as e:
+        logger.error(f"Erreur lors de l'exécution de la tâche {task_id}: {e}")
+        tasks[task_id] = f'Error: {str(e)}'
+
+def clone_vm_async(data, proxmox, node):
+    new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
+    new_vm_name = data.get('new_vm_name', f"MACHINE-{new_vm_id}")
+
+    clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
+
+    vm_config = {
+        'cores': data.get('cpu'),
+        'memory': data.get('ram')
+    }
+    proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
+
+    if 'disk_type' in data and 'disk_size' in data:
+        proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=data['disk_type'], size=data['disk_size'])
+
+    ipv4_config = f"{data['ipv4']}/24,gw={data['gateway_ipv4']}"
+    ipv6_config = f"{data['ipv6']},gw6={data['gateway_ipv6']}"
+    update_vm_network_config(proxmox, node, new_vm_id, ipv4_config, ipv6_config)
+
+    if data.get('start_vm'):
+        proxmox.nodes(node).qemu(new_vm_id).status.start.post()
+
+
+def update_vm_config_async(data, proxmox, node):
+    vm_status = proxmox.nodes(node).qemu(data['vm_id']).status.current.get()
+    vm_was_running = vm_status['status'] == 'running'
+    if vm_was_running:
+        proxmox.nodes(node).qemu(data['vm_id']).status.stop.post()
+        time.sleep(10)  # Attendre l'arrêt de la VM
+    vm_config = {
+        'cores': data['cpu'],
+        'memory': data['ram'],
+        'disk': data['disk'],
+        'net0': f"virtio,bridge=vmbr0,ip={data['ipv4']}/24,gw={data['ipv4'].rsplit('.', 1)[0]}.1,ip6={data['ipv6']}"
+    }
+    proxmox.nodes(node).qemu(data['vm_id']).config.put(**vm_config)
+    if vm_was_running:
+        proxmox.nodes(node).qemu(data['vm_id']).status.start.post()
+
+def delete_vm_async(vm_id, proxmox, node):
+    vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
+    if vm_status.get('status') == 'running':
+        proxmox.nodes(node).qemu(vm_id).status.stop.post()
+        time.sleep(10)  # Attendre l'arrêt de la VM
+    proxmox.nodes(node).qemu(vm_id).delete()
+
+# Endpoints
 @app.route('/clone_vm', methods=['POST'])
 def clone_vm():
     data = request.json
-    logger.debug(f"Requête reçue pour cloner la VM: {data}")
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
-
-    try:
-        # Générer un nouvel identifiant unique pour la VM
-        new_vm_id = generate_unique_vmid(proxmox, node)
-        logger.debug(f"new_vm_id généré : {new_vm_id}")
-
-        # Utiliser le préfixe "machine-VMID" pour le champ "new_vm_name"
-        new_vm_name = f"machine-{new_vm_id}"
-
-        # Cloner la VM en spécifiant newid (utilisant l'identifiant numérique)
-        logger.debug("Début du processus de clonage...")
-        clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
-        logger.debug(f"Réponse du clonage: {clone_response}")
-
-        # Mise à jour de la configuration CPU et RAM de la VM clonée
-        vm_config = {
-            'cores': data.get('cpu'),
-            'memory': data.get('ram')
-        }
-        update_vm_config_response = proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
-        logger.debug(f"Réponse de la mise à jour de la configuration VM (CPU/RAM): {update_vm_config_response}")
-
-        # Redimensionnement du disque (si spécifié)
-        disk_to_resize = data.get('disk_type', None)
-        new_size = data.get('disk_size', None)
-        if disk_to_resize and new_size:
-            resize_response = proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=disk_to_resize, size=new_size)
-            logger.debug(f"Réponse du redimensionnement du disque: {resize_response}")
-
-        # Mise à jour de la configuration réseau de la VM clonée
-        ipv4_config = f"{data['ipv4']}/24,gw={data['gateway_ipv4']}"
-        ipv6_config = f"{data['ipv6']},gw6={data['gateway_ipv6']}"
-        network_update_response = update_vm_network_config(proxmox, node, new_vm_id, ipv4_config, ipv6_config)
-
-        # Démarrer la VM si demandé
-        if data.get('start_vm'):
-            start_vm_response = proxmox.nodes(node).qemu(new_vm_id).status.start.post()
-            logger.debug(f"Réponse du démarrage de la VM: {start_vm_response}")
-
-        return jsonify({
-            'clone_response': clone_response, 
-            'update_vm_config_response': update_vm_config_response, 
-            'network_update_response': network_update_response,
-            'start_vm_response': 'VM started' if data.get('start_vm') else 'VM not started'
-        })
-
-    except Exception as e:
-        logger.error(f"Erreur lors du clonage ou de la configuration de la VM: {e}")
-        return jsonify({'error': str(e)}), 500
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = 'In Progress'
+    threading.Thread(target=async_task_wrapper, args=(task_id, clone_vm_async, data, proxmox, node)).start()
+    return jsonify({'task_id': task_id})
 
 @app.route('/update_vm_config', methods=['POST'])
 def update_vm_config():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
-
-    try:
-        # Vérifier l'état de la VM
-        vm_status = proxmox.nodes(node).qemu(data['vm_id']).status.current.get()
-        vm_was_running = vm_status['status'] == 'running'
-
-        # Arrêter la VM si elle est en cours d'exécution
-        if vm_was_running:
-            proxmox.nodes(node).qemu(data['vm_id']).status.stop.post()
-            # Attendre l'arrêt complet de la VM (ajouter ici une logique d'attente)
-
-        # Effectuer les modifications de configuration
-        vm_config = {
-            'cores': data['cpu'],
-            'memory': data['ram'],
-            'disk': data['disk'],
-            'net0': f"virtio,bridge=vmbr0,ip={data['ipv4']}/24,gw={data['ipv4'].rsplit('.', 1)[0]}.1,ip6={data['ipv6']}"
-        }
-        update_vm_config_response = proxmox.nodes(node).qemu(data['vm_id']).config.put(**vm_config)
-
-        # Redémarrer la VM si elle était en cours d'exécution
-        if vm_was_running:
-            proxmox.nodes(node).qemu(data['vm_id']).status.start.post()
-
-        return jsonify(update_vm_config_response)
-
-    except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour de la configuration de la VM: {e}")
-        return jsonify({'error': str(e)}), 500
-
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = 'In Progress'
+    threading.Thread(target=async_task_wrapper, args=(task_id, update_vm_config_async, data, proxmox, node)).start()
+    return jsonify({'task_id': task_id})
 
 @app.route('/delete_vm', methods=['DELETE'])
 def delete_vm():
     vm_id = request.args.get('vm_id')
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = 'In Progress'
+    threading.Thread(target=async_task_wrapper, args=(task_id, delete_vm_async, vm_id, proxmox, node)).start()
+    return jsonify({'task_id': task_id})
 
-    try:
-        # Vérifier l'état de la VM
-        vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
-
-        # Si la VM est en cours d'exécution, l'arrêter
-        if vm_status.get('status') == 'running':
-            stop_response = proxmox.nodes(node).qemu(vm_id).status.stop.post()
-            logger.debug(f"Réponse de l'arrêt de la VM: {stop_response}")
-
-            # Attendre que la VM soit complètement arrêtée (vérification à intervalles)
-            while True:
-                vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
-                if vm_status.get('status') != 'running':
-                    break
-                time.sleep(5)  # Attendre 5 secondes entre les vérifications
-
-        # Supprimer la VM
-        delete_response = proxmox.nodes(node).qemu(vm_id).delete()
-        logger.debug(f"Réponse de la suppression de la VM: {delete_response}")
-
-        return jsonify({'delete_response': delete_response})
-
-    except Exception as e:
-        logger.error(f"Erreur lors de la suppression de la VM: {e}")
-        return jsonify({'error': str(e)}), 500
-
+@app.route('/check_status', methods=['GET'])
+def check_status():
+    task_id = request.args.get('task_id')
+    status = tasks.get(task_id, 'Unknown Task ID')
+    return jsonify({'task_id': task_id, 'status': status})
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0")
