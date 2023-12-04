@@ -149,10 +149,14 @@ def delete_vm():
         # Si la VM est en cours d'exécution, l'arrêter
         if vm_status.get('status') == 'running':
             stop_response = proxmox.nodes(node).qemu(vm_id).status.stop.post()
-            logger.debug(f"Réponse de l'arrêt forcé de la VM: {stop_response}")
+            logger.debug(f"Réponse de l'arrêt de la VM: {stop_response}")
 
-            # Attendre que la VM soit complètement arrêtée avant de continuer
-            # Ajoutez ici une logique pour attendre ou vérifier à nouveau l'état si nécessaire
+            # Attendre que la VM soit complètement arrêtée (vérification à intervalles)
+            while True:
+                vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
+                if vm_status.get('status') != 'running':
+                    break
+                time.sleep(5)  # Attendre 5 secondes entre les vérifications
 
         # Supprimer la VM
         delete_response = proxmox.nodes(node).qemu(vm_id).delete()
