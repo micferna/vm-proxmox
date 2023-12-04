@@ -80,20 +80,29 @@ def clone_vm_async(data, proxmox, node):
 
 
 def update_vm_config_async(data, proxmox, node):
-    vm_status = proxmox.nodes(node).qemu(data['vm_id']).status.current.get()
+    vm_id = data['vm_id']
+    vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
     vm_was_running = vm_status['status'] == 'running'
+
     if vm_was_running:
-        proxmox.nodes(node).qemu(data['vm_id']).status.stop.post()
-        time.sleep(10)  # Attendre l'arrêt de la VM
+        proxmox.nodes(node).qemu(vm_id).status.stop.post()
+        time.sleep(10)  # Attendre l'arrêt complet de la VM
+
+    # Mise à jour de la configuration CPU et RAM
     vm_config = {
-        'cores': data['cpu'],
-        'memory': data['ram'],
-        'disk': data['disk'],
-        'net0': f"virtio,bridge=vmbr0,ip={data['ipv4']}/24,gw={data['ipv4'].rsplit('.', 1)[0]}.1,ip6={data['ipv6']}"
+        'cores': data.get('cpu'),
+        'memory': data.get('ram')
     }
-    proxmox.nodes(node).qemu(data['vm_id']).config.put(**vm_config)
-    if vm_was_running:
-        proxmox.nodes(node).qemu(data['vm_id']).status.start.post()
+    proxmox.nodes(node).qemu(vm_id).config.put(**vm_config)
+
+    # Gestion du redimensionnement du disque
+    if 'disk_type' in data and 'disk' in data:
+        disk_size = data['disk']
+        if not disk_size.endswith('G'):
+            disk_size += 'G'  # Assurez-vous que la taille du disque est en gigaoctets
+        proxmox.nodes(node).qemu(vm_id).resize.put(disk=data['disk_type'], size=disk_size)
+
+
 
 def delete_vm_async(vm_id, proxmox, node):
     vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()

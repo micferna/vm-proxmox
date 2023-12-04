@@ -58,7 +58,10 @@ curl -X POST [URL_DU_SERVEUR_API]/update_vm_config \
          }'
 ```
 
-
+### Vérifier l'état d'une tâche
+```bash
+curl -X GET "http://localhost:5000/check_status?task_id=<ID_TACHE>"
+```
 
 ### Suprimer une VM
 ```bash
