@@ -69,6 +69,7 @@ def async_task_wrapper(task_id, func, *args, **kwargs):
 def clone_vm_async(data, proxmox, node):
     new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
     new_vm_name = data.get('new_vm_name', f"MACHINE-{new_vm_id}")
+    bridge = data.get('bridge')
 
     clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
 
@@ -81,12 +82,24 @@ def clone_vm_async(data, proxmox, node):
     if 'disk_type' in data and 'disk_size' in data:
         proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=data['disk_type'], size=data['disk_size'])
 
+    # Récupérer la configuration complète de la VM
+    full_vm_config = proxmox.nodes(node).qemu(new_vm_id).config.get()
+
+    if bridge:
+        # Mettre à jour la configuration réseau avec le bridge spécifié
+        network_config = full_vm_config.get('net0', '')
+        if network_config:
+            new_network_config = network_config.split(',')
+            new_network_config = [config if not config.startswith('bridge=') else f'bridge={bridge}' for config in new_network_config]
+            proxmox.nodes(node).qemu(new_vm_id).config.put(net0=','.join(new_network_config))
+
     ipv4_config = f"{data['ipv4']}/24,gw={data['gateway_ipv4']}"
     ipv6_config = f"{data['ipv6']},gw6={data['gateway_ipv6']}"
     update_vm_network_config(proxmox, node, new_vm_id, ipv4_config, ipv6_config)
 
     if data.get('start_vm'):
         proxmox.nodes(node).qemu(new_vm_id).status.start.post()
+
 
 
 def update_vm_config_async(data, proxmox, node):
