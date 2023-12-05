@@ -38,13 +38,22 @@ curl -X POST http://localhost:5000/clone_vm \
            "disk_size": "30G",
            "start_vm": true
          }'
-         
 ```
 
 ### Update une VM
 ### Chaque paramettre est optionnel pour les modifications
 ```bash
-curl -X POST [URL_DU_SERVEUR_API]/update_vm_config \
+curl -X POST http://localhost:5000/update_vm_config \
+     -H "Content-Type: application/json" \
+     -d '{
+           "vm_id": "101",
+           "cpu": "4",
+           "ram": "2096",
+           "disk_type": "sata0",
+           "disk": "150"
+         }'
+
+curl -X POST http://localhost:5000/update_vm_config \
      -H "Content-Type: application/json" \
      -d '{
            "vm_id": "ID_DE_LA_VM",
