@@ -41,14 +41,18 @@ def get_proxmox_api():
     password = os.getenv('PROXMOX_PASSWORD')
     return proxmoxer.ProxmoxAPI(host, user=user, password=password, verify_ssl=True)
 
-def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None, ipv6_config=None):
+def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None, ipv4_gateway=None, ipv6_config=None, ipv6_gateway=None):
     net_config = f"model=virtio,bridge={bridge}"
     ipconfig0 = ''
     
     if ipv4_config:
         ipconfig0 += f"ip={ipv4_config}"
+        if ipv4_gateway:
+            ipconfig0 += f",gw={ipv4_gateway}"
     if ipv6_config:
         ipconfig0 += f",ip6={ipv6_config}"
+        if ipv6_gateway:
+            ipconfig0 += f",gw6={ipv6_gateway}"
 
     config_update = {'net0': net_config}
     if ipconfig0:
@@ -56,6 +60,7 @@ def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None, ipv6
 
     response = proxmox.nodes(node).qemu(vmid).config.put(**config_update)
     logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
+
 
 def is_ip_used(proxmox, node, ip_address):
     vms = proxmox.nodes(node).qemu.get()
@@ -129,15 +134,22 @@ def clone_vm_async(data, proxmox, node, ip_pools):
     ipv6_config = data.get('ipv6')
     ip_assigned_manually = True
 
-    if not ipv4_config or not ipv6_config:
-        selected_pool = ip_pools[0]
-        ip_assigned_manually = False
-        if not ipv4_config:
-            ipv4_config = find_free_ip(proxmox, node, selected_pool['network_ipv4']) + '/24'
-        if not ipv6_config:
-            ipv6_config = find_free_ip(proxmox, node, selected_pool['network_ipv6']) + '/64'
+    selected_pool = ip_pools[0]  # ou une logique pour sélectionner le bon pool
 
-    update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, ipv6_config)
+    bridge = selected_pool['bridge']  # Utiliser le bridge du pool sélectionné
+    ipv4_gateway = selected_pool['gateway_ipv4']
+    ipv6_gateway = selected_pool['gateway_ipv6']
+
+    # Si les adresses IP ne sont pas attribuées manuellement, utilisez celles du pool
+    ipv4_config = data.get('ipv4')
+    if not ipv4_config:
+        ipv4_config = find_free_ip(proxmox, node, selected_pool['network_ipv4']) + '/24'
+
+    ipv6_config = data.get('ipv6')
+    if not ipv6_config:
+        ipv6_config = find_free_ip(proxmox, node, selected_pool['network_ipv6']) + '/64'
+
+    update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, ipv4_gateway, ipv6_config, ipv6_gateway)
     
     # Démarrage de la VM si nécessaire
     if data.get('start_vm'):
