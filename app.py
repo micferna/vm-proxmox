@@ -26,6 +26,19 @@ def get_proxmox_api():
     password = os.getenv('PROXMOX_PASSWORD')
     return proxmoxer.ProxmoxAPI(host, user=user, password=password, verify_ssl=True)
 
+def is_ip_in_use(proxmox, node, ipv4, ipv6):
+    vms = proxmox.nodes(node).qemu.get()
+    for vm in vms:
+        vmid = vm['vmid']
+        config = proxmox.nodes(node).qemu(vmid).config.get()
+        for key in ['ipconfig0', 'ipconfig1', 'net0']:
+            if key in config:
+                if ipv4 and ipv4 in config[key]:
+                    return True
+                if ipv6 and ipv6 in config[key]:
+                    return True
+    return False
+
 def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
     try:
         ipconfig0 = f"ip={ipv4_config}"
@@ -57,6 +70,10 @@ def async_task_wrapper(task_id, func, *args, **kwargs):
         tasks[task_id] = f'Error: {str(e)}'
 
 def clone_vm_async(data, proxmox, node):
+    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
+        logger.error("L'adresse IP est déjà utilisée.")
+        return
+    
     new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
     new_vm_name = data.get('new_vm_name', f"MACHINE-{new_vm_id}")
 
@@ -80,6 +97,10 @@ def clone_vm_async(data, proxmox, node):
 
 
 def update_vm_config_async(data, proxmox, node):
+    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
+        logger.error("L'adresse IP est déjà utilisée.")
+        return
+    
     vm_id = data['vm_id']
     logger.debug(f"Mise à jour de la configuration de la VM {vm_id}")
 
@@ -129,6 +150,10 @@ def clone_vm():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
+    
+    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
+        return jsonify({'error': 'L\'adresse IP est déjà en usage'}), 400
+
     task_id = uuid.uuid4().hex
     tasks[task_id] = 'In Progress'
     threading.Thread(target=async_task_wrapper, args=(task_id, clone_vm_async, data, proxmox, node)).start()
@@ -139,10 +164,15 @@ def update_vm_config():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
+    
+    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
+        return jsonify({'error': 'L\'adresse IP est déjà en usage'}), 400
+
     task_id = uuid.uuid4().hex
     tasks[task_id] = 'In Progress'
     threading.Thread(target=async_task_wrapper, args=(task_id, update_vm_config_async, data, proxmox, node)).start()
     return jsonify({'task_id': task_id})
+
 
 @app.route('/delete_vm', methods=['DELETE'])
 def delete_vm():
