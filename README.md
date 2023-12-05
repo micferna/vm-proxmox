@@ -76,3 +76,13 @@ curl -X GET "http://localhost:5000/check_status?task_id=<ID_TACHE>"
 ```bash
 curl -X DELETE "http://localhost:5000/delete_vm?vm_id=101"
 ```
+
+### Liste toute les VMs
+```bash
+curl http://localhost:5000/list_vms
+```
+
+### Information en plus
+```bash
+curl http://localhost:5000/list_vms/IDVM
+```

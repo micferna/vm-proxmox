@@ -26,19 +26,6 @@ def get_proxmox_api():
     password = os.getenv('PROXMOX_PASSWORD')
     return proxmoxer.ProxmoxAPI(host, user=user, password=password, verify_ssl=True)
 
-def is_ip_in_use(proxmox, node, ipv4, ipv6):
-    vms = proxmox.nodes(node).qemu.get()
-    for vm in vms:
-        vmid = vm['vmid']
-        config = proxmox.nodes(node).qemu(vmid).config.get()
-        for key in ['ipconfig0', 'ipconfig1', 'net0']:
-            if key in config:
-                if ipv4 and ipv4 in config[key]:
-                    return True
-                if ipv6 and ipv6 in config[key]:
-                    return True
-    return False
-
 def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
     try:
         ipconfig0 = f"ip={ipv4_config}"
@@ -50,6 +37,16 @@ def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
     except Exception as e:
         logger.error(f"Erreur lors de la mise à jour de la configuration réseau: {e}")
         raise
+
+def is_ip_used(proxmox, node, ip_address):
+    vms = proxmox.nodes(node).qemu.get()
+    for vm in vms:
+        vmid = vm['vmid']
+        config = proxmox.nodes(node).qemu(vmid).config.get()
+        ipconfig0 = config.get('ipconfig0', '')
+        if ip_address in ipconfig0:
+            return True
+    return False
 
 def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
     while True:
@@ -70,10 +67,6 @@ def async_task_wrapper(task_id, func, *args, **kwargs):
         tasks[task_id] = f'Error: {str(e)}'
 
 def clone_vm_async(data, proxmox, node):
-    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
-        logger.error("L'adresse IP est déjà utilisée.")
-        return
-    
     new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
     new_vm_name = data.get('new_vm_name', f"MACHINE-{new_vm_id}")
 
@@ -97,10 +90,6 @@ def clone_vm_async(data, proxmox, node):
 
 
 def update_vm_config_async(data, proxmox, node):
-    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
-        logger.error("L'adresse IP est déjà utilisée.")
-        return
-    
     vm_id = data['vm_id']
     logger.debug(f"Mise à jour de la configuration de la VM {vm_id}")
 
@@ -150,9 +139,13 @@ def clone_vm():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
-    
-    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
-        return jsonify({'error': 'L\'adresse IP est déjà en usage'}), 400
+
+    ipv4 = data.get('ipv4')
+    ipv6 = data.get('ipv6')
+
+    # Vérifier si les adresses IP sont déjà utilisées
+    if is_ip_used(proxmox, node, ipv4) or is_ip_used(proxmox, node, ipv6):
+        return jsonify({'error': 'Adresse IP déjà utilisée'}), 400
 
     task_id = uuid.uuid4().hex
     tasks[task_id] = 'In Progress'
@@ -164,15 +157,10 @@ def update_vm_config():
     data = request.json
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
-    
-    if is_ip_in_use(proxmox, node, data.get('ipv4'), data.get('ipv6')):
-        return jsonify({'error': 'L\'adresse IP est déjà en usage'}), 400
-
     task_id = uuid.uuid4().hex
     tasks[task_id] = 'In Progress'
     threading.Thread(target=async_task_wrapper, args=(task_id, update_vm_config_async, data, proxmox, node)).start()
     return jsonify({'task_id': task_id})
-
 
 @app.route('/delete_vm', methods=['DELETE'])
 def delete_vm():
@@ -189,6 +177,42 @@ def check_status():
     task_id = request.args.get('task_id')
     status = tasks.get(task_id, 'Unknown Task ID')
     return jsonify({'task_id': task_id, 'status': status})
+
+@app.route('/list_vms', methods=['GET'])
+@app.route('/list_vms/<int:vmid>', methods=['GET'])  # Route pour un VMID spécifique
+def list_vms(vmid=None):
+    proxmox = get_proxmox_api()
+    node = os.getenv('PROXMOX_NODE')
+
+    try:
+        if vmid:
+            # Récupérer les informations brutes pour une VM spécifique
+            detailed_vm_info = proxmox.nodes(node).qemu(vmid).config.get()
+            return jsonify(detailed_vm_info)
+        else:
+            # Récupérer la liste de toutes les VMs avec des informations détaillées
+            vms = proxmox.nodes(node).qemu.get()
+            vm_details = []
+
+            for vm in vms:
+                vmid = vm['vmid']
+                vm_info = proxmox.nodes(node).qemu(vmid).config.get()
+
+                vm_details.append({
+                    'vmid': vmid,
+                    'name': vm.get('name', 'N/A'),
+                    'status': vm.get('status', 'N/A'),
+                    'cores': vm_info.get('cores', 'N/A'),
+                    'memory': vm_info.get('memory', 'N/A'),
+                    'ipconfig0': vm_info.get('ipconfig0', 'N/A'),
+                    # Ajoutez d'autres champs selon vos besoins
+                })
+
+            return jsonify(vm_details)
+
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des informations des VMs: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0")
