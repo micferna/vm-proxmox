@@ -8,6 +8,9 @@ import threading
 import time
 import uuid
 
+from queue import Queue
+from threading import Thread
+
 # Configuration du journal
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -19,6 +22,7 @@ app = Flask(__name__)
 
 # Stockage des tâches asynchrones
 tasks = {}
+task_queue = Queue()
 
 def get_proxmox_api():
     host = os.getenv('PROXMOX_HOST')
@@ -58,13 +62,27 @@ def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
             logger.debug(f"vmid {vmid} généré avec succès.")
             return vmid
 
+def process_task_queue():
+    while True:
+        task = task_queue.get()
+        try:
+            task['func'](*task['args'], **task['kwargs'])
+            tasks[task['task_id']] = 'Completed'
+        except Exception as e:
+            logger.error(f"Erreur lors de l'exécution de la tâche {task['task_id']}: {e}")
+            tasks[task['task_id']] = f'Error: {str(e)}'
+        finally:
+            task_queue.task_done()
+
 def async_task_wrapper(task_id, func, *args, **kwargs):
-    try:
-        func(*args, **kwargs)
-        tasks[task_id] = 'Completed'
-    except Exception as e:
-        logger.error(f"Erreur lors de l'exécution de la tâche {task_id}: {e}")
-        tasks[task_id] = f'Error: {str(e)}'
+    task = {
+        'task_id': task_id,
+        'func': func,
+        'args': args,
+        'kwargs': kwargs
+    }
+    tasks[task_id] = 'In Progress'
+    task_queue.put(task)
 
 def clone_vm_async(data, proxmox, node):
     new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
@@ -130,8 +148,6 @@ def update_vm_network_config_async(data, proxmox, node):
     if vm_was_running:
         proxmox.nodes(node).qemu(vm_id).status.start.post()
 
-
-
 def delete_vm_async(vm_id, proxmox, node):
     vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
     if vm_status.get('status') == 'running':
@@ -154,8 +170,7 @@ def clone_vm():
         return jsonify({'error': 'Adresse IP déjà utilisée'}), 400
 
     task_id = uuid.uuid4().hex
-    tasks[task_id] = 'In Progress'
-    threading.Thread(target=async_task_wrapper, args=(task_id, clone_vm_async, data, proxmox, node)).start()
+    async_task_wrapper(task_id, clone_vm_async, data, proxmox, node)
     return jsonify({'task_id': task_id})
 
 @app.route('/update_vm_config', methods=['POST'])
@@ -164,8 +179,7 @@ def update_vm_config():
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
     task_id = uuid.uuid4().hex
-    tasks[task_id] = 'In Progress'
-    threading.Thread(target=async_task_wrapper, args=(task_id, update_vm_config_async, data, proxmox, node)).start()
+    async_task_wrapper(task_id, update_vm_config_async, data, proxmox, node)
     return jsonify({'task_id': task_id})
 
 @app.route('/delete_vm', methods=['DELETE'])
@@ -174,8 +188,7 @@ def delete_vm():
     proxmox = get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
     task_id = uuid.uuid4().hex
-    tasks[task_id] = 'In Progress'
-    threading.Thread(target=async_task_wrapper, args=(task_id, delete_vm_async, vm_id, proxmox, node)).start()
+    async_task_wrapper(task_id, delete_vm_async, vm_id, proxmox, node)
     return jsonify({'task_id': task_id})
 
 @app.route('/check_status', methods=['GET'])
@@ -221,4 +234,6 @@ def list_vms(vmid=None):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    task_processor_thread = Thread(target=process_task_queue, daemon=True)
+    task_processor_thread.start()
     app.run(debug=True, host="0.0.0.0")
