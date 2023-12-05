@@ -87,3 +87,16 @@ curl http://localhost:5000/list_vms
 ```bash
 curl http://localhost:5000/list_vms/IDVM
 ```
+
+
+
+curl -X POST http://localhost:5000/clone_vm \
+     -H "Content-Type: application/json" \
+     -d '{
+           "source_vm_id": "100000",
+           "cpu": 4,
+           "ram": 8192,
+           "disk_type": "sata0",
+           "disk_size": "30G",
+	     "start_vm": true
+         }'

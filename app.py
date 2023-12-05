@@ -7,6 +7,8 @@ import random
 import threading
 import time
 import uuid
+import json
+import ipaddress
 
 from queue import Queue
 from threading import Thread
@@ -24,33 +26,57 @@ app = Flask(__name__)
 tasks = {}
 task_queue = Queue()
 
+# Fonction pour charger les pools d'adresses IP depuis un fichier JSON
+def load_ip_pools(filename='config.json'):
+    with open(filename, 'r') as file:
+        data = json.load(file)
+    return data['pools']
+
+
+# Initialisation des pools d'IP
+ip_pools = load_ip_pools('config.json')
+
 def get_proxmox_api():
     host = os.getenv('PROXMOX_HOST')
     user = os.getenv('PROXMOX_USER')
     password = os.getenv('PROXMOX_PASSWORD')
     return proxmoxer.ProxmoxAPI(host, user=user, password=password, verify_ssl=True)
 
-def update_vm_network_config(proxmox, node, vmid, ipv4_config, ipv6_config):
-    try:
-        ipconfig0 = f"ip={ipv4_config}"
-        if ipv6_config:
-            ipconfig0 += f",ip6={ipv6_config}"
-        response = proxmox.nodes(node).qemu(vmid).config.put(ipconfig0=ipconfig0)
-        logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
-        return response
-    except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour de la configuration réseau: {e}")
-        raise
+def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None, ipv6_config=None):
+    net_config = f"model=virtio,bridge={bridge}"
+    ipconfig0 = ''
+    
+    if ipv4_config:
+        ipconfig0 += f"ip={ipv4_config}"
+    if ipv6_config:
+        ipconfig0 += f",ip6={ipv6_config}"
+
+    config_update = {'net0': net_config}
+    if ipconfig0:
+        config_update['ipconfig0'] = ipconfig0
+
+    response = proxmox.nodes(node).qemu(vmid).config.put(**config_update)
+    logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
+
+
 
 def is_ip_used(proxmox, node, ip_address):
     vms = proxmox.nodes(node).qemu.get()
     for vm in vms:
         vmid = vm['vmid']
         config = proxmox.nodes(node).qemu(vmid).config.get()
-        ipconfig0 = config.get('ipconfig0', '')
-        if ip_address in ipconfig0:
+        if f"ip={ip_address}" in config.get('ipconfig0', ''):
             return True
     return False
+
+
+# Fonction pour trouver une adresse IP libre dans un pool
+def find_free_ip(proxmox, node, ip_network):
+    for ip in ipaddress.ip_network(ip_network).hosts():
+        if not is_ip_used(proxmox, node, str(ip)):
+            return str(ip)
+    raise RuntimeError(f"Aucune adresse IP libre trouvée dans le pool {ip_network}")
+
 
 def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
     while True:
@@ -84,37 +110,39 @@ def async_task_wrapper(task_id, func, *args, **kwargs):
     tasks[task_id] = 'In Progress'
     task_queue.put(task)
 
-def clone_vm_async(data, proxmox, node):
+def clone_vm_async(data, proxmox, node, ip_pools):
     new_vm_id = data.get('new_vm_id', generate_unique_vmid(proxmox, node))
     new_vm_name = data.get('new_vm_name', f"MACHINE-{new_vm_id}")
-    bridge = data.get('bridge')
 
+    # Clonage de la VM
     clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
 
+    # Configuration des ressources de la VM
     vm_config = {
         'cores': data.get('cpu'),
         'memory': data.get('ram')
     }
     proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
 
+    # Gestion de la taille du disque
     if 'disk_type' in data and 'disk_size' in data:
         proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=data['disk_type'], size=data['disk_size'])
 
-    # Récupérer la configuration complète de la VM
-    full_vm_config = proxmox.nodes(node).qemu(new_vm_id).config.get()
+    # Configuration réseau
+    bridge = data.get('bridge', 'vmbr0')  # Bridge par défaut
+    ipv4_config = data.get('ipv4')
+    ipv6_config = data.get('ipv6')
 
-    if bridge:
-        # Mettre à jour la configuration réseau avec le bridge spécifié
-        network_config = full_vm_config.get('net0', '')
-        if network_config:
-            new_network_config = network_config.split(',')
-            new_network_config = [config if not config.startswith('bridge=') else f'bridge={bridge}' for config in new_network_config]
-            proxmox.nodes(node).qemu(new_vm_id).config.put(net0=','.join(new_network_config))
+    if not ipv4_config or not ipv6_config:
+        selected_pool = ip_pools[0]
+        if not ipv4_config:
+            ipv4_config = find_free_ip(proxmox, node, selected_pool['network_ipv4']) + '/24'
+        if not ipv6_config:
+            ipv6_config = find_free_ip(proxmox, node, selected_pool['network_ipv6']) + '/64'
 
-    ipv4_config = f"{data['ipv4']}/24,gw={data['gateway_ipv4']}"
-    ipv6_config = f"{data['ipv6']},gw6={data['gateway_ipv6']}"
-    update_vm_network_config(proxmox, node, new_vm_id, ipv4_config, ipv6_config)
+    update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, ipv6_config)
 
+    # Démarrage de la VM si nécessaire
     if data.get('start_vm'):
         proxmox.nodes(node).qemu(new_vm_id).status.start.post()
 
@@ -166,11 +194,11 @@ def clone_vm():
     ipv6 = data.get('ipv6')
 
     # Vérifier si les adresses IP sont déjà utilisées
-    if is_ip_used(proxmox, node, ipv4) or is_ip_used(proxmox, node, ipv6):
+    if (ipv4 and is_ip_used(proxmox, node, ipv4)) or (ipv6 and is_ip_used(proxmox, node, ipv6)):
         return jsonify({'error': 'Adresse IP déjà utilisée'}), 400
 
     task_id = uuid.uuid4().hex
-    async_task_wrapper(task_id, clone_vm_async, data, proxmox, node)
+    async_task_wrapper(task_id, clone_vm_async, data, proxmox, node, ip_pools)  # Pass ip_pools here
     return jsonify({'task_id': task_id})
 
 @app.route('/update_vm_config', methods=['POST'])
