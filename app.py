@@ -100,43 +100,36 @@ def clone_vm_async(data, proxmox, node):
     if data.get('start_vm'):
         proxmox.nodes(node).qemu(new_vm_id).status.start.post()
 
-
-
-def update_vm_config_async(data, proxmox, node):
+def update_vm_network_config_async(data, proxmox, node):
     vm_id = data['vm_id']
-    logger.debug(f"Mise à jour de la configuration de la VM {vm_id}")
+    bridge = data.get('bridge')
+    ipv4_config = data.get('ipv4')
+    ipv6_config = data.get('ipv6')
 
-    # Vérifier l'état actuel de la VM
+    # Vérifier l'état de la VM
     vm_status = proxmox.nodes(node).qemu(vm_id).status.current.get()
     vm_was_running = vm_status['status'] == 'running'
-    logger.debug(f"État initial de la VM {vm_id}: {'en cours d’exécution' if vm_was_running else 'arrêtée'}")
-
-    # Arrêter la VM si elle est en cours d'exécution
     if vm_was_running:
-        logger.debug(f"Arrêt de la VM {vm_id}")
+        # Arrêter la VM pour modifier la configuration
         proxmox.nodes(node).qemu(vm_id).status.stop.post()
-        time.sleep(10)  # Attendre l'arrêt complet de la VM
+        time.sleep(10)
 
-    # Mise à jour de la configuration CPU et RAM
-    vm_config = {
-        'cores': data.get('cpu'),
-        'memory': data.get('ram')
-    }
-    proxmox.nodes(node).qemu(vm_id).config.put(**vm_config)
-    logger.debug(f"Configuration CPU et RAM mise à jour pour la VM {vm_id}")
+    # Récupérer et modifier la configuration réseau
+    full_vm_config = proxmox.nodes(node).qemu(vm_id).config.get()
+    network_config = full_vm_config.get('net0', '')
+    if network_config:
+        new_network_config = network_config.split(',')
+        new_network_config = [config if not config.startswith('bridge=') else f'bridge={bridge}' for config in new_network_config]
+        proxmox.nodes(node).qemu(vm_id).config.put(net0=','.join(new_network_config))
 
-    # Gestion du redimensionnement du disque
-    if 'disk_type' in data and 'disk' in data:
-        disk_size = data['disk']
-        if not disk_size.endswith('G'):
-            disk_size += 'G'  # Assurez-vous que la taille du disque est en gigaoctets
-        proxmox.nodes(node).qemu(vm_id).resize.put(disk=data['disk_type'], size=disk_size)
-        logger.debug(f"Disque redimensionné pour la VM {vm_id}")
+    # Mise à jour de l'adresse IP si spécifiée
+    if ipv4_config or ipv6_config:
+        update_vm_network_config(proxmox, node, vm_id, ipv4_config, ipv6_config)
 
     # Redémarrer la VM si elle était en cours d'exécution
     if vm_was_running:
-        logger.debug(f"Redémarrage de la VM {vm_id}")
         proxmox.nodes(node).qemu(vm_id).status.start.post()
+
 
 
 def delete_vm_async(vm_id, proxmox, node):
