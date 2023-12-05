@@ -32,7 +32,6 @@ def load_ip_pools(filename='config.json'):
         data = json.load(file)
     return data['pools']
 
-
 # Initialisation des pools d'IP
 ip_pools = load_ip_pools('config.json')
 
@@ -58,8 +57,6 @@ def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None, ipv6
     response = proxmox.nodes(node).qemu(vmid).config.put(**config_update)
     logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
 
-
-
 def is_ip_used(proxmox, node, ip_address):
     vms = proxmox.nodes(node).qemu.get()
     for vm in vms:
@@ -69,14 +66,12 @@ def is_ip_used(proxmox, node, ip_address):
             return True
     return False
 
-
 # Fonction pour trouver une adresse IP libre dans un pool
 def find_free_ip(proxmox, node, ip_network):
     for ip in ipaddress.ip_network(ip_network).hosts():
         if not is_ip_used(proxmox, node, str(ip)):
             return str(ip)
     raise RuntimeError(f"Aucune adresse IP libre trouvée dans le pool {ip_network}")
-
 
 def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
     while True:
@@ -132,16 +127,18 @@ def clone_vm_async(data, proxmox, node, ip_pools):
     bridge = data.get('bridge', 'vmbr0')  # Bridge par défaut
     ipv4_config = data.get('ipv4')
     ipv6_config = data.get('ipv6')
+    ip_assigned_manually = True
 
     if not ipv4_config or not ipv6_config:
         selected_pool = ip_pools[0]
+        ip_assigned_manually = False
         if not ipv4_config:
             ipv4_config = find_free_ip(proxmox, node, selected_pool['network_ipv4']) + '/24'
         if not ipv6_config:
             ipv6_config = find_free_ip(proxmox, node, selected_pool['network_ipv6']) + '/64'
 
     update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, ipv6_config)
-
+    
     # Démarrage de la VM si nécessaire
     if data.get('start_vm'):
         proxmox.nodes(node).qemu(new_vm_id).status.start.post()
@@ -198,8 +195,25 @@ def clone_vm():
         return jsonify({'error': 'Adresse IP déjà utilisée'}), 400
 
     task_id = uuid.uuid4().hex
-    async_task_wrapper(task_id, clone_vm_async, data, proxmox, node, ip_pools)  # Pass ip_pools here
-    return jsonify({'task_id': task_id})
+    async_task_wrapper(task_id, clone_vm_async, data, proxmox, node, ip_pools)
+
+    # Attendre la complétion de la tâche en arrière-plan
+    while True:
+        if tasks[task_id] != 'In Progress':
+            break
+        time.sleep(1)  # Attente passive
+
+    # Vérifier si la tâche a été complétée avec succès ou s'il y a eu une erreur
+    if 'Error' in tasks[task_id]:
+        response = {'error': tasks[task_id]}
+    else:
+        response = tasks[task_id]
+
+    # Supprimer la tâche de la liste des tâches
+    del tasks[task_id]
+
+    return jsonify(response)
+
 
 @app.route('/update_vm_config', methods=['POST'])
 def update_vm_config():
