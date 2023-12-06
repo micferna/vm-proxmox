@@ -2,4 +2,4 @@ flask
 python-dotenv 
 proxmoxer
 requests
-Flask-JWT-Extended
+gunicorn
