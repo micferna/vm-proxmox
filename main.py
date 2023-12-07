@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
+from dotenv import load_dotenv
+from typing import Optional
+from fastapi.responses import JSONResponse
 import os
 import logging
 import random
@@ -8,10 +11,8 @@ import uuid
 import json
 import ipaddress
 import asyncio
-
-# Assurez-vous que proxmoxer est compatible avec les appels asynchrones
 import proxmoxer
-from dotenv import load_dotenv
+
 
 app = FastAPI()
 
@@ -292,20 +293,20 @@ async def check_status(task_id: str):
     return {"task_id": task_id, "task_info": task_info}
 
 @app.get("/list_vms")
-@app.get("/list_vms/{vmid}")
-async def list_vms(request: ListVMsRequest):
+async def list_vms(vmid: Optional[int] = None):
     proxmox = await get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
+    executor = ThreadPoolExecutor()
 
     try:
-        if request.vmid:
-            detailed_vm_info = await proxmox.nodes(node).qemu(request.vmid).config.get()
+        if vmid:
+            detailed_vm_info = await asyncio.get_event_loop().run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vmid).config.get())
             return detailed_vm_info
         else:
-            vms = await proxmox.nodes(node).qemu.get()
+            vms = await asyncio.get_event_loop().run_in_executor(executor, lambda: proxmox.nodes(node).qemu.get())
             vm_details = []
             for vm in vms:
-                vm_info = await proxmox.nodes(node).qemu(vm['vmid']).config.get()
+                vm_info = await asyncio.get_event_loop().run_in_executor(executor, lambda vm=vm: proxmox.nodes(node).qemu(vm['vmid']).config.get())
                 vm_details.append({
                     'vmid': vm['vmid'],
                     'name': vm.get('name', 'N/A'),
