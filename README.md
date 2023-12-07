@@ -60,26 +60,24 @@ curl -X GET "http://127.0.0.1:8000/list_vms?vmid=100"
 ### Update une VM
 ### Chaque paramettre est optionnel pour les modifications
 ```bash
-curl -X POST http://localhost:5000/update_vm_config \
-     -H "Content-Type: application/json" \
-     -d '{
-           "vm_id": "101",
-           "cpu": "4",
-           "ram": "2096",
-           "disk_type": "sata0",
-           "disk": "150"
-         }'
+# Modifier uniquement le CPU et la RAM
+curl -X POST -H "Content-Type: application/json" -d '{
+  "vm_id": 19075,
+  "cpu": 2,
+  "ram": 2096
+}' http://127.0.0.1:8000/update_vm_config
 
-curl -X POST http://localhost:5000/update_vm_config \
-     -H "Content-Type: application/json" \
-     -d '{
-           "vm_id": "ID_DE_LA_VM",
-           "cpu": "NB_DE_CORES_CPU",
-           "ram": "TAILLE_DE_LA_RAM",
-           "disk": "TYPE_ET_TAILLE_DU_DISQUE",
-           "ipv4": "ADRESSE_IPV4",
-           "ipv6": "ADRESSE_IPV6",
-           "gateway_ipv4": "PASSERELLE_IPV4",
-           "gateway_ipv6": "PASSERELLE_IPV6"
-         }'
+# Modifier uniquement le type de disque et la taille du disque
+curl -X POST -H "Content-Type: application/json" -d '{
+  "vm_id": 19075,
+  "disk_type": "sata0",
+  "disk_size": "150"
+}' http://127.0.0.1:8000/update_vm_config
+
+# Modifier uniquement les adresses IP IPv4 et IPv6
+curl -X POST -H "Content-Type: application/json" -d '{
+  "vm_id": 19075,
+  "ipv4": "NOUVELLE_IP_IPV4",
+  "ipv6": "NOUVELLE_IP_IPV6"
+}' http://127.0.0.1:8000/update_vm_config
 ```

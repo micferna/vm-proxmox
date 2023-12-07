@@ -34,9 +34,14 @@ class CloneVMRequest(BaseModel):
 
 class UpdateVMConfigRequest(BaseModel):
     vm_id: int
-    bridge: str
-    ipv4: str = None
-    ipv6: str = None
+    bridge: Optional[str] = None
+    ipv4: Optional[str] = None
+    ipv6: Optional[str] = None
+    cpu: Optional[int] = None
+    ram: Optional[int] = None
+    disk_type: Optional[str] = None
+    disk_size: Optional[str] = None
+
 
 class VMIdRequest(BaseModel):
     vm_id: int
@@ -218,7 +223,7 @@ async def update_vm_network_config_async(data, proxmox, node):
 
     if vm_was_running:
         await proxmox.nodes(node).qemu(vm_id).status.start.post()
-
+        
 async def delete_vm_async(vm_id, proxmox, node):
     try:
         executor = ThreadPoolExecutor()
