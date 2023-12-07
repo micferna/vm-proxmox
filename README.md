@@ -42,7 +42,7 @@ curl -X DELETE http://127.0.0.1:8000/delete_vm/IDVM
 curl -X GET http://127.0.0.1:8000/check_status?task_id=<task_id>
 ```
 ---
-### Liste toute les VMs et certaines info les VMs sur le proxmox 
+### Affiche tout les VMs présent sur le proxmox
 ```bash
 curl -X GET "http://127.0.0.1:8000/list_vms"
 ```
