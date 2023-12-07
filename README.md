@@ -5,44 +5,47 @@
 
 [![Utilisateurs en ligne](https://img.shields.io/discord/347412941630341121?style=flat-square&logo=discord&colorB=7289DA)](https://discord.gg/347412941630341121)
 
+# Utilisation : 
+- Renseignez les infos du proxmox dans le fichier `.env `
+- Renseignez les IPs dans le fichier `config.json` pour une utilisation automatique des IPs
+  
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn FASTAPI:app --reload
+```
+
 ---
 ### Cloner une VM
 ```bash
-curl -X POST http://localhost:5000/clone_vm \
+curl -X POST http://127.0.0.1:8000/clone_vm \
      -H "Content-Type: application/json" \
-     -d '{
-           "source_vm_id": "100000",
-           "new_vm_id": "101",
-           "new_vm_name": "vmclone101",
-           "ipv4": "192.168.1.10",
-           "ipv6": "fd00::10/64",
-           "gateway_ipv4": "192.168.1.1",
-           "gateway_ipv6": "fd00::1",
-           "bridge": "vmbr0",
-           "cpu": 4,
-           "ram": 8192,
-           "disk_type": "sata0",
-           "disk_size": "30G",
-	     "start_vm": true
-         }'
-
-
-curl -X POST http://localhost:5000/clone_vm \
+     -d '{"source_vm_id": 100000, "new_vm_id": 101, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "bridge": "vmbr0", "ipv4": "192.168.1.10/24", "ipv6": "fd00::10/64", "start_vm": false}'
+```
+### Avec le minimum
+```bash
+curl -X POST http://127.0.0.1:8000/clone_vm \
      -H "Content-Type: application/json" \
-     -d '{
-           "source_vm_id": "100000",
-           "ipv4": "192.168.1.10",
-           "ipv6": "fd00::10/64",
-           "gateway_ipv4": "192.168.1.1",
-           "gateway_ipv6": "fd00::1",
-           "cpu": 4,
-           "ram": 8192,
-           "disk_type": "sata0",
-           "disk_size": "30G",
-           "start_vm": true
-         }'
+     -d '{"source_vm_id": 100000, "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "start_vm": true}'
 ```
 
+---
+### Suprimer une VM
+```bash
+curl -X DELETE http://127.0.0.1:8000/delete_vm/IDVM
+```
+---
+
+### Vérifier l'état d'une tâche
+```bash
+curl -X GET http://127.0.0.1:8000/check_status?task_id=<task_id>
+```
+
+---
+---
+---
+# A REVOIR
 ### Update une VM
 ### Chaque paramettre est optionnel pour les modifications
 ```bash
@@ -69,36 +72,3 @@ curl -X POST http://localhost:5000/update_vm_config \
            "gateway_ipv6": "PASSERELLE_IPV6"
          }'
 ```
-
-### Vérifier l'état d'une tâche
-```bash
-curl -X GET "http://localhost:5000/check_status?task_id=<ID_TACHE>"
-```
-
-### Suprimer une VM
-```bash
-curl -X DELETE "http://localhost:5000/delete_vm?vm_id=101"
-```
-
-### Liste toute les VMs
-```bash
-curl http://localhost:5000/list_vms
-```
-
-### Information en plus
-```bash
-curl http://localhost:5000/list_vms/IDVM
-```
-
-
-
-curl -X POST http://localhost:5000/clone_vm \
-     -H "Content-Type: application/json" \
-     -d '{
-           "source_vm_id": "100000",
-           "cpu": 4,
-           "ram": 8192,
-           "disk_type": "sata0",
-           "disk_size": "30G",
-	     "start_vm": true
-         }'
