@@ -19,7 +19,6 @@ load_dotenv()
 tasks = {}
 task_queue = asyncio.Queue()
 
-
 class CloneVMRequest(BaseModel):
     source_vm_id: int
     new_vm_id: int = None
@@ -58,7 +57,6 @@ ip_pools = load_ip_pools('config.json')
 
 # Exemple de fonction asynchrone pour Proxmox API
 async def get_proxmox_api():
-    # Assurez-vous que la connexion à Proxmox peut se faire de manière asynchrone
     host = os.getenv('PROXMOX_HOST')
     user = os.getenv('PROXMOX_USER')
     password = os.getenv('PROXMOX_PASSWORD')
@@ -81,7 +79,6 @@ async def update_vm_network_config(proxmox, node, vmid, bridge, ipv4_config=None
     if ipconfig0:
         config_update['ipconfig0'] = ipconfig0
 
-    # Assurez-vous que cette opération est asynchrone si nécessaire
     response = proxmox.nodes(node).qemu(vmid).config.put(**config_update)
     logger.debug(f"Réponse de la mise à jour de la configuration réseau: {response}")
 
