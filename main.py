@@ -4,15 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from typing import Optional
 from fastapi.responses import JSONResponse
-import os
-import logging
-import random
-import uuid
-import json
-import ipaddress
-import asyncio
-import proxmoxer
-
+import os,logging,random,uuid,json,ipaddress,asyncio,proxmoxer
 
 app = FastAPI()
 
