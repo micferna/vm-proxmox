@@ -57,14 +57,14 @@ curl -X GET "http://127.0.0.1:8000/list_vms?vmid=100"
 ### Chaque paramettre est optionnel pour les modifications
 ```bash
 curl -X POST -H "Content-Type: application/json" -d '{
-  "vm_id": 14954,
-  "cpu": 4,
-  "ram": 4096,
+  "vm_id": 101,
+  "cpu": 1,
+  "ram": 512
 }' http://127.0.0.1:8000/update_vm_config
 
 # Modifier uniquement le type de disque et la taille du disque
 curl -X POST -H "Content-Type: application/json" -d '{
-  "vm_id": 17785,
+  "vm_id": 101,
   "disk_type": "sata0",
   "disk_size": "+200G"
 }' http://127.0.0.1:8000/update_vm_config
