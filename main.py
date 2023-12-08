@@ -212,11 +212,12 @@ async def update_vm_config_async(data, proxmox, node):
     executor = ThreadPoolExecutor()
     loop = asyncio.get_running_loop()
 
-    # Récupération de l'état de la VM de manière asynchrone
+    # Vérifier l'état actuel de la VM
     vm_status_before = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.current.get())
     vm_was_running_before_update = vm_status_before['status'] == 'running'
 
-    if vm_was_running_before_update:  # Utilisez ici vm_was_running_before_update au lieu de vm_was_running
+    if vm_was_running_before_update:
+        # Arrêter la VM si elle est en cours d'exécution
         await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.stop.post())
         await asyncio.sleep(10)
 
@@ -248,9 +249,9 @@ async def update_vm_config_async(data, proxmox, node):
     if update_config:
         await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).config.put(**update_config))
 
-    if vm_was_running_before_update:  # Utilisez également ici vm_was_running_before_update
-        await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.start.post())
-        
+    # Redémarrer la VM après la mise à jour, indépendamment de son état initial
+    await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.start.post())
+
 async def delete_vm_async(vm_id, proxmox, node):
     try:
         executor = ThreadPoolExecutor()

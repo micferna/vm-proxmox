@@ -52,19 +52,14 @@ curl -X GET "http://127.0.0.1:8000/list_vms"
 ```bash
 curl -X GET "http://127.0.0.1:8000/list_vms?vmid=100"
 ```
-
 ---
----
----
-# A REVOIR
 ### Update une VM
 ### Chaque paramettre est optionnel pour les modifications
 ```bash
-# Modifier uniquement le CPU et la RAM
 curl -X POST -H "Content-Type: application/json" -d '{
-  "vm_id": 17785,
+  "vm_id": 14954,
   "cpu": 4,
-  "ram": 4096
+  "ram": 4096,
 }' http://127.0.0.1:8000/update_vm_config
 
 # Modifier uniquement le type de disque et la taille du disque
@@ -74,6 +69,12 @@ curl -X POST -H "Content-Type: application/json" -d '{
   "disk_size": "+200G"
 }' http://127.0.0.1:8000/update_vm_config
 
+```
+---
+---
+# A REVOIR
+
+```bash
 # Modifier uniquement les adresses IP IPv4 et IPv6
 curl -X POST -H "Content-Type: application/json" -d '{
   "vm_id": 19075,
