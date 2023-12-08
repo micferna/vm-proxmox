@@ -199,30 +199,57 @@ async def clone_vm_async(task_id, data, proxmox, node, ip_pools):
         'ipv6': ipv6
     }
 
-async def update_vm_network_config_async(data, proxmox, node):
+async def update_vm_config_async(data, proxmox, node):
     vm_id = data['vm_id']
     bridge = data.get('bridge')
     ipv4_config = data.get('ipv4')
     ipv6_config = data.get('ipv6')
+    cpu = data.get('cpu')
+    ram = data.get('ram')
+    disk_type = data.get('disk_type')
+    disk_size = data.get('disk_size')
 
-    vm_status = await proxmox.nodes(node).qemu(vm_id).status.current.get()
-    vm_was_running = vm_status['status'] == 'running'
-    if vm_was_running:
-        await proxmox.nodes(node).qemu(vm_id).status.stop.post()
-        await asyncio.sleep(10)  # Remplacement de time.sleep par asyncio.sleep
+    executor = ThreadPoolExecutor()
+    loop = asyncio.get_running_loop()
 
-    full_vm_config = await proxmox.nodes(node).qemu(vm_id).config.get()
-    network_config = full_vm_config.get('net0', '')
-    if network_config:
-        new_network_config = network_config.split(',')
-        new_network_config = [config if not config.startswith('bridge=') else f'bridge={bridge}' for config in new_network_config]
-        await proxmox.nodes(node).qemu(vm_id).config.put(net0=','.join(new_network_config))
+    # Récupération de l'état de la VM de manière asynchrone
+    vm_status_before = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.current.get())
+    vm_was_running_before_update = vm_status_before['status'] == 'running'
 
-    if ipv4_config or ipv6_config:
-        await update_vm_network_config(proxmox, node, vm_id, ipv4_config, ipv6_config)
+    if vm_was_running_before_update:  # Utilisez ici vm_was_running_before_update au lieu de vm_was_running
+        await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.stop.post())
+        await asyncio.sleep(10)
 
-    if vm_was_running:
-        await proxmox.nodes(node).qemu(vm_id).status.start.post()
+    # Mise à jour de la configuration
+    update_config = {}
+    if cpu is not None:
+        update_config['cores'] = cpu
+    if ram is not None:
+        update_config['memory'] = ram
+    if disk_type is not None and disk_size is not None:
+        try:
+            resize_param = {"disk": disk_type, "size": disk_size}
+            await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).resize.put(**resize_param))
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise à jour de la taille du disque: {e}")
+
+
+    if bridge or ipv4_config or ipv6_config:
+        net_config = f"model=virtio,bridge={bridge}" if bridge else ""
+        ipconfig0 = ''
+        if ipv4_config:
+            ipconfig0 += f"ip={ipv4_config}"
+        if ipv6_config:
+            ipconfig0 += f",ip6={ipv6_config}"
+        update_config['net0'] = net_config
+        if ipconfig0:
+            update_config['ipconfig0'] = ipconfig0
+
+    if update_config:
+        await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).config.put(**update_config))
+
+    if vm_was_running_before_update:  # Utilisez également ici vm_was_running_before_update
+        await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).status.start.post())
         
 async def delete_vm_async(vm_id, proxmox, node):
     try:
@@ -267,8 +294,9 @@ async def update_vm_config(request: UpdateVMConfigRequest):
     proxmox = await get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
     task_id = uuid.uuid4().hex
-    asyncio.create_task(update_vm_network_config_async(request.dict(), proxmox, node))
+    asyncio.create_task(update_vm_config_async(request.dict(), proxmox, node))  # Modifier ici
     return {"task_id": task_id}
+
 
 @app.delete("/delete_vm/{vm_id}")
 async def delete_vm(vm_id: int):

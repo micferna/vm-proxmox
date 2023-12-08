@@ -62,16 +62,16 @@ curl -X GET "http://127.0.0.1:8000/list_vms?vmid=100"
 ```bash
 # Modifier uniquement le CPU et la RAM
 curl -X POST -H "Content-Type: application/json" -d '{
-  "vm_id": 19075,
-  "cpu": 2,
-  "ram": 2096
+  "vm_id": 17785,
+  "cpu": 4,
+  "ram": 4096
 }' http://127.0.0.1:8000/update_vm_config
 
 # Modifier uniquement le type de disque et la taille du disque
 curl -X POST -H "Content-Type: application/json" -d '{
-  "vm_id": 19075,
+  "vm_id": 17785,
   "disk_type": "sata0",
-  "disk_size": "150"
+  "disk_size": "+200G"
 }' http://127.0.0.1:8000/update_vm_config
 
 # Modifier uniquement les adresses IP IPv4 et IPv6
