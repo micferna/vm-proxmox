@@ -12,6 +12,7 @@
 ```bash
 git clone https://github.com/micferna/vm-proxmox.git
 cd vm-proxmox
+cp exemple.env .env
 python3 -m venv venv
 source venv/bin/activate
 pip3 install -r requirements.txt
@@ -70,7 +71,6 @@ curl -X POST -H "Content-Type: application/json" -d '{
 }' http://127.0.0.1:8000/update_vm_config
 
 ```
----
 ---
 # A REVOIR
 
