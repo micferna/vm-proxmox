@@ -96,11 +96,16 @@ async def is_ip_used(proxmox, node, ip_address):
             return True
     return False
 
-async def find_free_ip(proxmox, node, ip_network):
-    for ip in ipaddress.ip_network(ip_network).hosts():
+async def find_free_ip(proxmox, node, ip_network, gateway_ip):
+    network = ipaddress.ip_network(ip_network)
+    for ip in network.hosts():
+        if ip == network.network_address or ip == network.broadcast_address or str(ip) == gateway_ip:
+            continue
         if not await is_ip_used(proxmox, node, str(ip)):
             return str(ip)
     raise RuntimeError(f"Aucune adresse IP libre trouvée dans le pool {ip_network}")
+
+
 
 async def generate_unique_vmid(proxmox, node, min_vmid=10000, max_vmid=20000):
     while True:
@@ -166,10 +171,10 @@ async def clone_vm_async(task_id, data, proxmox, node, ip_pools):
     ipv6_gateway = selected_pool['gateway_ipv6']
 
     if not ipv4_config:
-        ipv4_config = await find_free_ip(proxmox, node, selected_pool['network_ipv4']) + '/24'
+        ipv4_config = await find_free_ip(proxmox, node, selected_pool['network_ipv4'], ipv4_gateway) + '/24'
 
     if not ipv6_config:
-        ipv6_config = await find_free_ip(proxmox, node, selected_pool['network_ipv6']) + '/64'
+        ipv6_config = await find_free_ip(proxmox, node, selected_pool['network_ipv6'], ipv6_gateway) + '/64'
 
     await update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, ipv4_gateway, ipv6_config, ipv6_gateway)
     
