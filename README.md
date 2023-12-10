@@ -21,11 +21,7 @@ uvicorn main:app --reload
 
 ---
 ### Cloner une VM
-```bash
-curl -X POST http://127.0.0.1:8000/clone_vm \
-     -H "Content-Type: application/json" \
-     -d '{"source_vm_id": 100000, "new_vm_id": 101, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "bridge": "vmbr0", "ipv4": "192.168.1.10/24", "ipv6": "fd00::10/64", "start_vm": false}'
-```
+
 ### Avec le minimum
 ```bash
 curl -X POST http://127.0.0.1:8000/clone_vm \
@@ -73,6 +69,13 @@ curl -X POST -H "Content-Type: application/json" -d '{
 ```
 ---
 # A REVOIR
+
+```bash
+# Cloner une VM full param
+curl -X POST http://127.0.0.1:8000/clone_vm \
+     -H "Content-Type: application/json" \
+     -d '{"source_vm_id": 100000, "new_vm_id": 101, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "bridge": "vmbr0", "ipv4": "192.168.1.10/24", "ipv6": "fd00::10/64", "start_vm": false}'
+```
 
 ```bash
 # Modifier uniquement les adresses IP IPv4 et IPv6
