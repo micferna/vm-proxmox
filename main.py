@@ -54,6 +54,7 @@ class ListVMsRequest(BaseModel):
 class IPManager:
     def __init__(self, ip_pools):
         self.ip_pools = ip_pools
+        self.locked_ips = set()  # Ensemble pour stocker les adresses IP verrouillées
 
     @classmethod
     def load_ip_pools(cls, filename='config.json'):
@@ -76,13 +77,17 @@ class IPManager:
     async def find_free_ip(self, proxmox, node, ip_network, gateway_ip):
         network = ipaddress.ip_network(ip_network)
         for ip in network.hosts():
-            if ip == network.network_address or ip == network.broadcast_address or str(ip) == gateway_ip:
+            ip_str = str(ip)
+            if ip in {network.network_address, network.broadcast_address, gateway_ip} or ip_str in self.locked_ips:
                 continue
-            ip_used = await self.is_ip_used(proxmox, node, str(ip))
-            # logger.debug(f"Vérification de l'IP {ip}: {'utilisée' if ip_used else 'libre'}")
+            ip_used = await self.is_ip_used(proxmox, node, ip_str)
             if not ip_used:
-                return str(ip)
+                self.locked_ips.add(ip_str)  # Verrouiller l'adresse IP
+                return ip_str
         raise RuntimeError(f"Aucune adresse IP libre trouvée dans le pool {ip_network}")
+
+    def unlock_ip(self, ip_address):
+        self.locked_ips.discard(ip_address)  # Déverrouiller l'adresse IP
 
 class ProxmoxAPIManager:
     def __init__(self):
@@ -128,77 +133,77 @@ class ProxmoxVMManager:
             except proxmoxer.ResourceException:
                 return vmid
 
-    async def async_task_wrapper(self, task_id, func, *args, **kwargs):
-        task = {
-            'task_id': task_id,
-            'func': func,
-            'args': args,
-            'kwargs': kwargs
-        }
-        tasks[task_id] = 'In Progress'
-        asyncio.create_task(func(*args, **kwargs))
-
     async def clone_vm_async(self, task_id, data, node, ip_pools):
-        proxmox = await self.api_manager.get_proxmox_api()
-        executor = ThreadPoolExecutor()
-        loop = asyncio.get_running_loop()
+        try:
+            proxmox = await self.api_manager.get_proxmox_api()
+            executor = ThreadPoolExecutor()
+            loop = asyncio.get_running_loop()
 
-        new_vm_id = await self.generate_unique_vmid(proxmox, node)
+            new_vm_id = await self.generate_unique_vmid(proxmox, node)
+            new_vm_name = data.get('new_vm_name') or f"MACHINE-{new_vm_id}"
+            clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
 
-        new_vm_name = data.get('new_vm_name') or f"MACHINE-{new_vm_id}"
+            vm_config = {
+                'cores': data.get('cpu'),
+                'memory': data.get('ram')
+            }
+            proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
 
-        clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
-        
-        vm_config = {
-            'cores': data.get('cpu'),
-            'memory': data.get('ram')
-        }
-        proxmox.nodes(node).qemu(new_vm_id).config.put(**vm_config)
+            if 'disk_type' in data and 'disk_size' in data:
+                proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=data['disk_type'], size=data['disk_size'])
 
-        if 'disk_type' in data and 'disk_size' in data:
-            proxmox.nodes(node).qemu(new_vm_id).resize.put(disk=data['disk_type'], size=data['disk_size'])
+            selected_pool = None
+            for pool in ip_pools:
+                if data.get('ipv4') and ipaddress.ip_address(data['ipv4'].split('/')[0]) in ipaddress.ip_network(pool['network_ipv4']):
+                    selected_pool = pool
+                    break
+                if data.get('ipv6') and ipaddress.ip_address(data['ipv6'].split('/')[0]) in ipaddress.ip_network(pool['network_ipv6']):
+                    selected_pool = pool
+                    break
 
-        # Sélection du pool IP approprié
-        selected_pool = None
-        for pool in ip_pools:
-            if data.get('ipv4') and ipaddress.ip_address(data['ipv4'].split('/')[0]) in ipaddress.ip_network(pool['network_ipv4']):
-                selected_pool = pool
-                break
-            if data.get('ipv6') and ipaddress.ip_address(data['ipv6'].split('/')[0]) in ipaddress.ip_network(pool['network_ipv6']):
-                selected_pool = pool
-                break
+            if not selected_pool:
+                selected_pool = ip_pools[0]
 
-        if not selected_pool:
-            selected_pool = ip_pools[0]  # Choix par défaut si aucune IP spécifique n'est fournie
+            bridge = selected_pool['bridge']
+            ipv4_config = data.get('ipv4') or (await self.ip_manager.find_free_ip(proxmox, node, selected_pool['network_ipv4'], selected_pool['gateway_ipv4']) + '/24')
+            ipv6_config = data.get('ipv6') or (await self.ip_manager.find_free_ip(proxmox, node, selected_pool['network_ipv6'], selected_pool['gateway_ipv6']) + '/64')
 
-        bridge = selected_pool['bridge']
-        ipv4_config = data.get('ipv4') or (await self.ip_manager.find_free_ip(proxmox, node, selected_pool['network_ipv4'], selected_pool['gateway_ipv4']) + '/24')
-        ipv6_config = data.get('ipv6') or (await self.ip_manager.find_free_ip(proxmox, node, selected_pool['network_ipv6'], selected_pool['gateway_ipv6']) + '/64')
+            await self.update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, selected_pool['gateway_ipv4'], ipv6_config, selected_pool['gateway_ipv6'])
 
-        await self.update_vm_network_config(proxmox, node, new_vm_id, bridge, ipv4_config, selected_pool['gateway_ipv4'], ipv6_config, selected_pool['gateway_ipv6'])
+            if data.get('start_vm'):
+                await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.start.post())
 
-        if data.get('start_vm'):
-            await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.start.post())
+            vm_status = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.current.get())
+            vm_config = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).config.get())
+            ipconfig0 = vm_config.get('ipconfig0', '')
 
-        vm_status = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.current.get())
-        vm_config = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).config.get())
-        ipconfig0 = vm_config.get('ipconfig0', '')
+            ipv4 = 'N/A'
+            ipv6 = 'N/A'
+            for part in ipconfig0.split(','):
+                if part.startswith('ip='):
+                    ipv4 = part.split('=')[1]
+                elif part.startswith('ip6='):
+                    ipv6 = part.split('=')[1]
 
-        ipv4 = 'N/A'
-        ipv6 = 'N/A'
-        for part in ipconfig0.split(','):
-            if part.startswith('ip='):
-                ipv4 = part.split('=')[1]
-            elif part.startswith('ip6='):
-                ipv6 = part.split('=')[1]
+            tasks[task_id] = {
+                'status': 'Completed',
+                'vm_status': vm_status.get('status', 'N/A'),
+                'vmid': new_vm_id,
+                'ipv4': ipv4,
+                'ipv6': ipv6
+            }
 
-        tasks[task_id] = {
-            'status': 'Completed',
-            'vm_status': vm_status.get('status', 'N/A'),
-            'vmid': new_vm_id,
-            'ipv4': ipv4,
-            'ipv6': ipv6
-        }
+        except Exception as e:
+            if 'ipv4_config' in locals():
+                self.ip_manager.unlock_ip(ipv4_config.split('/')[0])
+            if 'ipv6_config' in locals():
+                self.ip_manager.unlock_ip(ipv6_config.split('/')[0])
+            raise e
+        finally:
+            if 'ipv4_config' in locals():
+                self.ip_manager.unlock_ip(ipv4_config.split('/')[0])
+            if 'ipv6_config' in locals():
+                self.ip_manager.unlock_ip(ipv6_config.split('/')[0])
 
     async def update_vm_config_async(self, data, node):
         proxmox = await self.api_manager.get_proxmox_api()
