@@ -1,4 +1,5 @@
-# main.py
+# Fichier main.py
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +19,7 @@ import logging,random,uuid,asyncio,os
 app = FastAPI()
 
 # Configuration du journal
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
@@ -117,3 +118,4 @@ async def list_vms(vmid: Optional[int] = None):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

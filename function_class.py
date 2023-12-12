@@ -1,4 +1,5 @@
-# function_class.py
+# Fichier function_class.py
+
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -51,3 +52,4 @@ class CheckStatusRequest(BaseModel):
 
 class ListVMsRequest(BaseModel):
     vmid: int = None
+

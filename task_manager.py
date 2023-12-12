@@ -1,4 +1,5 @@
-# task_manager.py
+# Fichier task_manager.py
+
 class TaskManager:
     def __init__(self):
         self.tasks = {}
@@ -10,3 +11,5 @@ class TaskManager:
         return self.tasks.get(task_id)
 
 task_manager = TaskManager()
+
+
