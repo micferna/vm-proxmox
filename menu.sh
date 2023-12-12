@@ -28,10 +28,10 @@ show_help() {
 
 # Fonction pour cloner une VM
 clone_vm() {
-    local config=$1
+    local config=""
+    local vm_id=$DEFAULT_VM_ID
+    local new_vm_name=""
     local dns_name=""
-    local vm_id=${2:-$DEFAULT_VM_ID}  # Utilise l'ID fourni ou l'ID par défaut
-    local cpu ram disk_size
 
     while [[ $# -gt 0 ]]; do
         key="$1"
@@ -43,10 +43,19 @@ clone_vm() {
                 shift
                 ;;
             *)
+                case $config in
+                    "") config="$1" ;;
+                    *) shift ;;
+                esac
                 shift
                 ;;
         esac
     done
+
+    if [ -z "$config" ]; then
+        echo "Configuration manquante"
+        exit 1
+    fi
 
     case $config in
         1) cpu=1; ram=1024; disk_size="25G" ;;
@@ -55,11 +64,11 @@ clone_vm() {
         *) echo "Configuration invalide"; exit 1 ;;
     esac
 
-    json_data="{\"source_vm_id\": $vm_id, \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
-
     if [ -n "$dns_name" ]; then
-        json_data="{\"source_vm_id\": $vm_id, \"new_vm_name\": \"$dns_name\", \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
+        new_vm_name="$dns_name"
     fi
+
+    json_data="{\"source_vm_id\": $vm_id, \"new_vm_name\": \"$new_vm_name\", \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
 
     response=$(curl -s -X POST "$API_URL/clone_vm" \
         -H "Content-Type: application/json" \
@@ -159,3 +168,9 @@ case $1 in
         exit 1
         ;;
 esac
+
+
+
+#curl -X POST http://127.0.0.1:8000/clone_vm \
+#     -H "Content-Type: application/json" \
+#     -d '{"source_vm_id": 1000000, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "start_vm": true}'
