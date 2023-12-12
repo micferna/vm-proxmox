@@ -5,8 +5,6 @@ from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from typing import Optional
-
-
 from fastapi.responses import JSONResponse
 from function_class import (
     ProxmoxVMManager, IPManager, ProxmoxAPIManager,
@@ -19,7 +17,7 @@ import logging,random,uuid,asyncio,os
 app = FastAPI()
 
 # Configuration du journal
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
@@ -28,6 +26,7 @@ load_dotenv()
 # Stockage des tâches asynchrones
 tasks = {}
 task_queue = asyncio.Queue()
+ticket_manager = TicketManager()
 
 @app.post("/clone_vm")
 async def clone_vm(request: CloneVMRequest):

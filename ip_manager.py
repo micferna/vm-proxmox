@@ -18,8 +18,14 @@ class IPManager:
             with open(filename, 'r') as file:
                 data = json.load(file)
             return data['pools']
-        except Exception as e:
-            cls.logger.error(f"Erreur lors du chargement des pools d'IP : {e}")
+        except FileNotFoundError:
+            cls.logger.error(f"Fichier {filename} non trouvé.")
+            raise
+        except json.JSONDecodeError as e:
+            cls.logger.error(f"Erreur lors de l'analyse du JSON : {e}")
+            raise
+        except KeyError:
+            cls.logger.error("La clé 'pools' est manquante dans le fichier de configuration.")
             raise
 
     async def is_ip_used(self, proxmox, node, ip_address):
@@ -29,9 +35,9 @@ class IPManager:
             config = proxmox.nodes(node).qemu(vmid).config.get()
             ipconfig = config.get('ipconfig0', '')
             if f"ip={ip_address}" in ipconfig or f"ip6={ip_address}" in ipconfig:
-                # logger.debug(f"Adresse IP {ip_address} déjà utilisée par VM {vmid} (ipconfig0: {ipconfig})")
+                #logger.debug(f"Adresse IP {ip_address} déjà utilisée par VM {vmid} (ipconfig0: {ipconfig})")
                 return True
-        # logger.debug(f"Adresse IP {ip_address} libre")
+        #logger.debug(f"Adresse IP {ip_address} libre")
         return False
     
     async def find_free_ip(self, proxmox, node, ip_network, gateway_ip):
