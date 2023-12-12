@@ -41,7 +41,6 @@ class ProxmoxVMManager:
                 # Si une ResourceException est levée, cela signifie que le VMID est unique et peut être utilisé
                 return vmid
 
-
     async def clone_vm_async(self, task_id, data, node, ip_pools, tasks):
         try:
             proxmox = await self.api_manager.get_proxmox_api()
