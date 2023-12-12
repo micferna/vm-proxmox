@@ -117,13 +117,38 @@ clone_vm() {
 
 list_vms() {
     local response=$(curl -s -X GET "$API_URL/list_vms")
-    echo "$response" | jq -r '.[] | [.vmid, .name, .status, .cores, .memory, .ipconfig0] | @tsv' | 
-    awk -v RED="\033[0;31m" -v GREEN="\033[0;32m" -v YELLOW="\033[1;33m" -v LIGHT_BLUE="\033[1;34m" -v NC="\033[0m" '
-    BEGIN {
-        print YELLOW "VMID\tNAME\t\tSTATUS\tCORES\tMEMORY\tIP CONFIG" NC;
-    }
+
+    # Définir les couleurs et les styles
+    local RED="\033[0;31m"
+    local GREEN="\033[0;32m"
+    local YELLOW="\033[1;33m"  # Texte jaune en gras
+    local DARK_BLUE="\033[0;34m"  # Bleu foncé pour le nom
+    local BLUE="\033[0;36m"  # Bleu clair
+    local LIGHT_BLUE="\033[1;34m"  # Texte bleu clair en gras
+    local BOLD="\033[1m"  # Pour le texte en gras
+    local NC="\033[0m"  # Pas de couleur, réinitialiser le style
+
+    # Ligne de séparation pour encadrer l'en-tête
+    echo "--------------------------------------------------------------------------------"
+
+    # En-tête avec couleurs
+    echo -e "${YELLOW}VMID${NC}\t${DARK_BLUE}NAME${NC}\t\t${GREEN}STATUS${NC}\t\t${BLUE}CORES${NC}\t${RED}MEMORY${NC}\t${LIGHT_BLUE}IP CONFIG${NC}"
+
+    # Ligne de séparation après l'en-tête
+    echo "--------------------------------------------------------------------------------"
+
+    # Afficher d'abord les VMs "running"
+    echo "$response" | jq -r '.[] | select(.status=="running") | [.vmid, .name, .status, .cores, .memory, .ipconfig0] | @tsv' |
+    awk -v RED="$RED" -v GREEN="$GREEN" -v YELLOW="$YELLOW" -v DARK_BLUE="$DARK_BLUE" -v BLUE="$BLUE" -v LIGHT_BLUE="$LIGHT_BLUE" -v BOLD="$BOLD" -v NC="$NC" '
     {
-        printf("%s%-5s\t%-15s\t%-7s\t%-5s\t%-6s\t%s%s\n", (index($3, "running") ? GREEN : RED), $1, $2, $3, $4, $5, LIGHT_BLUE, $6);
+        printf("%s%s%-5s%s%s\t%s%-15s%s\t%s%-10s%s\t%s%-5s%s\t%s%-6s%s\t%s%s%s%s\n", BOLD, YELLOW, $1, NC, BOLD, DARK_BLUE, $2, NC, GREEN, $3, NC, BLUE, $4, NC, RED, $5, NC, BOLD, LIGHT_BLUE, $6, NC, BOLD);
+    }'
+
+    # Ensuite, afficher les autres VMs
+    echo "$response" | jq -r '.[] | select(.status!="running") | [.vmid, .name, .status, .cores, .memory, .ipconfig0] | @tsv' |
+    awk -v RED="$RED" -v GREEN="$GREEN" -v YELLOW="$YELLOW" -v DARK_BLUE="$DARK_BLUE" -v BLUE="$BLUE" -v LIGHT_BLUE="$LIGHT_BLUE" -v BOLD="$BOLD" -v NC="$NC" '
+    {
+        printf("%s%s%-5s%s%s\t%s%-15s%s\t%s%-10s%s\t%s%-5s%s\t%s%-6s%s\t%s%s%s%s\n", BOLD, YELLOW, $1, NC, BOLD, DARK_BLUE, $2, NC, RED, $3, NC, BLUE, $4, NC, RED, $5, NC, BOLD, LIGHT_BLUE, $6, NC, BOLD);
     }'
 }
 
