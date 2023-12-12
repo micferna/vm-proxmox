@@ -23,13 +23,30 @@ show_help() {
     print_color "$YELLOW" "--vm [1|2|3] Cloner une VM avec la configuration spécifiée"
     print_color "$YELLOW" "--remove [ID]   Supprimer la VM avec l'ID spécifié"
     print_color "$YELLOW" "--list         Lister toutes les VMs"
+    print_color "$YELLOW" "--dns [NOM]   Spécifier le nom DNS de la VM à cloner (facultatif)"
 }
 
 # Fonction pour cloner une VM
 clone_vm() {
     local config=$1
+    local dns_name=""
     local vm_id=${2:-$DEFAULT_VM_ID}  # Utilise l'ID fourni ou l'ID par défaut
     local cpu ram disk_size
+
+    while [[ $# -gt 0 ]]; do
+        key="$1"
+
+        case $key in
+            --dns)
+                dns_name="$2"
+                shift
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
 
     case $config in
         1) cpu=1; ram=1024; disk_size="25G" ;;
@@ -38,22 +55,36 @@ clone_vm() {
         *) echo "Configuration invalide"; exit 1 ;;
     esac
 
+    json_data="{\"source_vm_id\": $vm_id, \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
+
+    if [ -n "$dns_name" ]; then
+        json_data="{\"source_vm_id\": $vm_id, \"new_vm_name\": \"$dns_name\", \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
+    fi
+
     response=$(curl -s -X POST "$API_URL/clone_vm" \
         -H "Content-Type: application/json" \
-        -d "{\"source_vm_id\": $vm_id, \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}")
+        -d "$json_data")
 
     task_id=$(echo $response | jq -r '.task_id')
+
+    if [ "$task_id" == "null" ]; then
+        print_color "$RED" "Erreur lors du clonage de la VM. Task ID est null."
+        return 1
+    fi
 
     print_color "$GREEN" "VM clonée. Task ID: $task_id"
     print_color "$YELLOW" "En attente des informations de la VM..."
 
     while :; do
+        if [ -z "$task_id" ]; then
+            print_color "$RED" "Erreur lors du clonage de la VM. Task ID est vide."
+            break
+        fi
+
         vm_info=$(curl -s "$API_URL/check_status?task_id=$task_id")
-        #echo "Réponse de l'API : $vm_info"  # Afficher la réponse complète pour le débogage
 
         task_info_type=$(echo $vm_info | jq -r '.task_info | type')
 
-        # Vérifier si task_info est un objet et non une chaîne
         if [[ $task_info_type == "object" ]]; then
             status=$(echo $vm_info | jq -r '.task_info.status')
 
@@ -68,7 +99,6 @@ clone_vm() {
                 print_color "$RED" "En attente... (Statut: $status)"
             fi
         else
-            # Si task_info est une chaîne, afficher cette chaîne (par exemple, "In Progress")
             print_color "$RED" "En attente... (Statut: $(echo $vm_info | jq -r '.task_info'))"
         fi
         sleep 5
@@ -113,7 +143,7 @@ case $1 in
         show_help
         ;;
     --vm)
-        clone_vm $2
+        clone_vm $2 "${@:3}"
         ;;
     --remove)
         echo "Option --remove détectée"  # Débogage
@@ -129,4 +159,3 @@ case $1 in
         exit 1
         ;;
 esac
-
