@@ -26,7 +26,6 @@ load_dotenv()
 # Stockage des tâches asynchrones
 tasks = {}
 task_queue = asyncio.Queue()
-ticket_manager = TicketManager()
 
 @app.post("/clone_vm")
 async def clone_vm(request: CloneVMRequest):
