@@ -155,7 +155,6 @@ case $1 in
         clone_vm $2 "${@:3}"
         ;;
     --remove)
-        echo "Option --remove détectée"  # Débogage
         shift
         delete_vm "$@"
         ;;
@@ -163,14 +162,7 @@ case $1 in
         list_vms
         ;;
     *)
-        echo "Option inconnue: $1"  # Débogage
         show_help
         exit 1
         ;;
 esac
-
-
-
-#curl -X POST http://127.0.0.1:8000/clone_vm \
-#     -H "Content-Type: application/json" \
-#     -d '{"source_vm_id": 1000000, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "start_vm": true}'
