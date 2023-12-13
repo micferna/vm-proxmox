@@ -17,7 +17,7 @@ import logging,random,uuid,asyncio,os
 app = FastAPI()
 
 # Configuration du journal
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
