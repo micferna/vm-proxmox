@@ -7,6 +7,12 @@ import proxmoxer
 import json
 import logging
 import yaml
+import os
+
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement depuis .env
+load_dotenv()
 
 class ProxmoxVMManager:
     def __init__(self, ip_manager, api_manager):
@@ -121,11 +127,11 @@ class ProxmoxVMManager:
 
 
     async def update_ansible_inventory(self, vmid, ipv4, ipv6, action, dns_name=None):
-        inventory_file = 'inventory.yaml'
+        inventory_file_name = os.getenv("INVENTORY_FILE")
         self.logger.debug(f"Mise à jour de l'inventaire Ansible pour la VM {vmid}: Action = {action}")
 
         try:
-            with open(inventory_file, 'r') as file:
+            with open(inventory_file_name, 'r') as file:
                 try:
                     inventory = yaml.safe_load(file) or {}  # Charge le fichier YAML ou initialise à {} si vide
                 except yaml.YAMLError:
@@ -140,7 +146,7 @@ class ProxmoxVMManager:
         elif action == 'remove' and str(vmid) in inventory:
             del inventory[str(vmid)]
 
-        with open(inventory_file, 'w') as file:
+        with open(inventory_file_name, 'w') as file:
             yaml.dump(inventory, file, default_flow_style=False)
 
         self.logger.debug(f"Inventaire Ansible mis à jour: {action} VM {vmid}")
