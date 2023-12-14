@@ -3,3 +3,4 @@ proxmoxer
 uvicorn
 fastapi
 requests
+pyyaml

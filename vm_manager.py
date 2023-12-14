@@ -4,11 +4,15 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import ipaddress
 import proxmoxer
+import json
+import logging
+import yaml
 
 class ProxmoxVMManager:
     def __init__(self, ip_manager, api_manager):
         self.ip_manager = ip_manager
         self.api_manager = api_manager
+        self.logger = logging.getLogger(__name__)  # Initialisation du logger
 
     async def update_vm_network_config(self, proxmox, node, vmid, bridge, ipv4_config=None, ipv4_gateway=None, ipv6_config=None, ipv6_gateway=None):
         net_config = f"model=virtio,bridge={bridge}"
@@ -93,6 +97,8 @@ class ProxmoxVMManager:
                 elif part.startswith('ip6='):
                     ipv6 = part.split('=')[1]
 
+            await self.update_ansible_inventory(new_vm_id, ipv4, ipv6, 'add')
+
             tasks[task_id] = {
                 'status': 'Completed',
                 'vm_status': vm_status.get('status', 'N/A'),
@@ -112,6 +118,32 @@ class ProxmoxVMManager:
                 self.ip_manager.unlock_ip(ipv4_config.split('/')[0])
             if 'ipv6_config' in locals():
                 self.ip_manager.unlock_ip(ipv6_config.split('/')[0])
+
+
+    async def update_ansible_inventory(self, vmid, ipv4, ipv6, action, dns_name=None):
+        inventory_file = 'inventory.yaml'
+        self.logger.debug(f"Mise à jour de l'inventaire Ansible pour la VM {vmid}: Action = {action}")
+
+        try:
+            with open(inventory_file, 'r') as file:
+                try:
+                    inventory = yaml.safe_load(file) or {}  # Charge le fichier YAML ou initialise à {} si vide
+                except yaml.YAMLError:
+                    # Fichier mal formaté, initialiser un nouvel inventaire
+                    inventory = {}
+        except FileNotFoundError:
+            # Fichier non trouvé, initialiser un nouvel inventaire
+            inventory = {}
+
+        if action == 'add':
+            inventory[str(vmid)] = {'ipv4': ipv4, 'ipv6': ipv6, 'role': 'default_role'}
+        elif action == 'remove' and str(vmid) in inventory:
+            del inventory[str(vmid)]
+
+        with open(inventory_file, 'w') as file:
+            yaml.dump(inventory, file, default_flow_style=False)
+
+        self.logger.debug(f"Inventaire Ansible mis à jour: {action} VM {vmid}")
 
     async def update_vm_config_async(self, data, node):
         proxmox = await self.api_manager.get_proxmox_api()
@@ -188,6 +220,9 @@ class ProxmoxVMManager:
 
             # Suppression de la VM
             await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vm_id).delete())
+
+            # Retirer la VM de l'inventaire
+            await self.update_ansible_inventory(vm_id, None, None, 'remove')
 
             tasks[task_id] = "Completed"
         except Exception as e:
