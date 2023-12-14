@@ -4,3 +4,5 @@ uvicorn
 fastapi
 requests
 pyyaml
+ansible
+ansible-runner

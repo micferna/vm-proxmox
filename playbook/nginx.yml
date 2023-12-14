@@ -1,0 +1,19 @@
+---
+- name: Installer NGINX sur une machine Ubuntu
+  hosts: all
+  become: yes
+  tasks:
+    - name: Mise à jour de l'index des paquets
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Installation de NGINX
+      ansible.builtin.apt:
+        name: nginx
+        state: latest
+
+    - name: Démarrage et activation du service NGINX
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: yes
