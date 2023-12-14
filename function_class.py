@@ -33,6 +33,7 @@ class CloneVMRequest(BaseModel):
     ipv4: str = None
     ipv6: str = None
     start_vm: bool = False
+    application: str = None
 
 class UpdateVMConfigRequest(BaseModel):
     vm_id: int
