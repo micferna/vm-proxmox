@@ -5,7 +5,9 @@
 
 [![Utilisateurs en ligne](https://img.shields.io/discord/347412941630341121?style=flat-square&logo=discord&colorB=7289DA)](https://discord.gg/347412941630341121)
 
-
+<p align="center">
+  <img src="https://i.ibb.co/4Z989T6/image.png" alt="Nom de l'image">
+</p>
 
 ## Script de Gestion des Machines Virtuelles Proxmox avec FastAPI
 
@@ -59,12 +61,14 @@ Ce script est une application basée sur FastAPI pour la gestion des machines vi
 - `ipv4` : (optionnel) : Adresse IPv4 pour la nouvelle VM.
 - `ipv6` : (optionnel) : Adresse IPv6 pour la nouvelle VM.
 - `start_vm` : (optionnel) : Démarrer la nouvelle VM après le clonage (par défaut, non démarrée).
+- `application`: (optionnel) ajouter le nom du playbook a éxécuter
 
 Exemple de demande JSON :
 
 ```json
 {
   "source_vm_id": 12345,
+  "new_vm_id": 100,
   "new_vm_name": "NouvelleVM",
   "cpu": 2,
   "ram": 4096,
@@ -73,7 +77,8 @@ Exemple de demande JSON :
   "bridge": "vmbr0",
   "ipv4": "192.168.1.100",
   "ipv6": "2001:db8::1/64",
-  "start_vm": true
+  "start_vm": true,
+  "application": "nginx" # Pour lancer le playbook nginx 
 }
 ```
 
