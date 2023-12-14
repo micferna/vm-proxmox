@@ -15,20 +15,31 @@ class AnsibleManager:
         self.private_data_dir = os.path.join(self.script_dir, 'playbook')
 
     async def update_ansible_inventory(self, vmid, ipv4, ipv6, action, dns_name=None, application=None):
+        ipv4 = ipv4.split('/')[0] if ipv4 else ipv4
+        ipv6 = ipv6.split('/')[0] if ipv6 else ipv6
+
         try:
             with open(self.inventory_file, 'r') as file:
                 inventory = yaml.safe_load(file) or {}
         except (FileNotFoundError, yaml.YAMLError):
             inventory = {}
 
+        # Mettre à jour l'inventaire
         if action == 'add':
-            inventory_entry = {'ipv4': ipv4, 'ipv6': ipv6, 'dns_name': dns_name, 'role': 'default_role'}
-            if application:
-                inventory_entry['application'] = application
-            inventory[str(vmid)] = inventory_entry
-        elif action == 'remove' and str(vmid) in inventory:
-            del inventory[str(vmid)]
+            host_entry = {
+                'ansible_host': ipv4,
+                'ansible_ssh_user': self.ssh_user,
+                'ansible_ssh_private_key_file': self.ssh_key_path
+                # Ajoutez d'autres variables spécifiques à l'hôte ici si nécessaire
+            }
+            inventory['all'] = inventory.get('all', {})
+            inventory['all']['hosts'] = inventory['all'].get('hosts', {})
+            inventory['all']['hosts'][str(vmid)] = host_entry
 
+        elif action == 'remove' and str(vmid) in inventory['all']['hosts']:
+            del inventory['all']['hosts'][str(vmid)]
+
+        # Sauvegarder l'inventaire mis à jour
         with open(self.inventory_file, 'w') as file:
             yaml.dump(inventory, file, default_flow_style=False)
 
@@ -38,15 +49,28 @@ class AnsibleManager:
         playbook_path = os.path.join(self.private_data_dir, f'{application}.yml')
         runner_params = {
             'private_data_dir': self.private_data_dir,
-            'inventory': self.inventory_file,
+            'inventory': self.inventory_file,  # Assurez-vous que cela pointe vers 'inventory.yaml'
             'playbook': playbook_path,
-            'extravars': {'ansible_user': self.ssh_user, 'ansible_ssh_private_key_file': self.ssh_key_path},
-            'limit': f'{vmid}'
+            'extravars': {
+                'ansible_user': self.ssh_user, 
+                'ansible_ssh_private_key_file': self.ssh_key_path
+            },
+            'limit': str(vmid)
         }
 
+        # Log des paramètres de la commande Ansible
+        self.logger.debug(f"Exécution du playbook Ansible avec les paramètres : {runner_params}")
+
+        # Exécution du playbook Ansible
         result = await asyncio.to_thread(run, **runner_params)
+
+        # Log du résultat de l'exécution
+        self.logger.debug(f"Résultat de l'exécution du playbook Ansible : {result}")
+
+        # Gestion des erreurs
         if result.rc != 0:
             self.logger.error(f'Erreur lors de l’exécution du playbook Ansible pour la VM {vmid}: {result.stdout}')
         else:
             self.logger.info(f'Playbook Ansible exécuté avec succès pour la VM {vmid}')
+
         return result

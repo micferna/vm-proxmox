@@ -44,6 +44,7 @@ class ProxmoxVMManager:
             new_vm_id = await self.id_manager.generate_unique_vmid(node)
             new_vm_name = data.get('new_vm_name') or f"MACHINE-{new_vm_id}"
             clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
+            application = data.get('application', None)
 
             vm_config = {
                 'cores': data.get('cpu'),
@@ -88,7 +89,18 @@ class ProxmoxVMManager:
                     ipv6 = part.split('=')[1]
 
             # Mise à jour de l'inventaire Ansible
-            await self.ansible_manager.update_ansible_inventory(new_vm_id, ipv4, ipv6, 'add')
+            await self.ansible_manager.update_ansible_inventory(
+            new_vm_id, 
+            ipv4.split('/')[0],  # Enlever le masque de sous-réseau
+            ipv6.split('/')[0],  # Enlever le masque de sous-réseau
+            'add', 
+            dns_name=new_vm_name,  # Passer new_vm_name comme dns_name
+            application=application
+        )
+
+            # Exécution du playbook si une application est spécifiée
+            if application:
+                await self.ansible_manager.run_ansible_playbook(new_vm_id, application)
 
             tasks[task_id] = {
                 'status': 'Completed',
