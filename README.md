@@ -59,7 +59,9 @@ Ce script est une application basée sur FastAPI pour la gestion des machines vi
 - `disk_size` : (optionnel) : Taille du disque pour la nouvelle VM.
 - `bridge` : (optionnel) : Pont réseau pour la nouvelle VM.
 - `ipv4` : (optionnel) : Adresse IPv4 pour la nouvelle VM.
+- `gw`:(optionnel) La gataway de l'IPv4
 - `ipv6` : (optionnel) : Adresse IPv6 pour la nouvelle VM.
+- `gw6` :(optionnel) La gataway de l'IPv6
 - `start_vm` : (optionnel) : Démarrer la nouvelle VM après le clonage (par défaut, non démarrée).
 - `application`: (optionnel) ajouter le nom du playbook a éxécuter
 
@@ -76,7 +78,9 @@ Exemple de demande JSON :
   "disk_size": "50G",
   "bridge": "vmbr0",
   "ipv4": "192.168.1.100",
+  "gw": "192.168.1.1",
   "ipv6": "2001:db8::1/64",
+  "gw6": "2001:db8::1",
   "start_vm": true,
   "application": "nginx" # Pour lancer le playbook nginx 
 }
@@ -230,7 +234,7 @@ curl -X POST -H "Content-Type: application/json" -d '{
 # Cloner une VM full param
 curl -X POST http://127.0.0.1:8000/clone_vm \
      -H "Content-Type: application/json" \
-     -d '{"source_vm_id": 100000, "new_vm_id": 101, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "bridge": "vmbr0", "ipv4": "192.168.1.10/24", "ipv6": "fd00::10/64", "start_vm": false}'
+     -d '{"source_vm_id": 100000, "new_vm_id": 101, "new_vm_name": "VMTESTFASTAPI", "cpu": 8, "ram": 8096, "disk_type": "sata0", "disk_size": "50G", "bridge": "vmbr0", "ipv4": "192.168.1.10/24", "gw": "192.168.1.1", "ipv6": "fd00::10/64", "gw6": "2001:db8::1", "start_vm": false, "application": "nginx"}'
 ```
 
 ```bash
