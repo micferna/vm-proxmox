@@ -56,19 +56,24 @@ class AnsibleManager:
 
     async def run_applications(self, vm_id, applications):
         playbook_dir = os.getenv('PLAYBOOK_DIR', '/chemin/par/defaut/des/playbooks')
-        try:
-            apps_requested = applications.split()
 
-            for app in apps_requested:
-                playbook_name = f'{app}.yml'
-                full_playbook_path = os.path.join(playbook_dir, playbook_name)
+        if applications:  # Vérifier que 'applications' n'est pas None
+            try:
+                apps_requested = applications.split()
 
-                if os.path.isfile(full_playbook_path):
-                    await self.run_ansible_playbook(vm_id, full_playbook_path)
-                else:
-                    self.logger.warning(f"Aucun playbook trouvé pour l'application '{app}'")
-        except FileNotFoundError as e:
-            self.logger.error(f"Erreur de fichier non trouvé : {e}")
+                for app in apps_requested:
+                    playbook_name = f'{app}.yml'
+                    full_playbook_path = os.path.join(playbook_dir, playbook_name)
+
+                    if os.path.isfile(full_playbook_path):
+                        await self.run_ansible_playbook(vm_id, full_playbook_path)
+                    else:
+                        self.logger.warning(f"Aucun playbook trouvé pour l'application '{app}'")
+            except FileNotFoundError as e:
+                self.logger.error(f"Erreur de fichier non trouvé : {e}")
+        else:
+            self.logger.info(f"Aucune application spécifiée pour la VM {vm_id}")
+
                 
     async def run_ansible_playbook(self, vmid, application):
         playbook_path = os.path.join(self.private_data_dir, f'{application}')

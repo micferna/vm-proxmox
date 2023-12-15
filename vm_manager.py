@@ -91,21 +91,26 @@ class ProxmoxVMManager:
                 # Démarrer la VM
                 await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.start.post())
 
-            # Attendre que la VM soit opérationnelle
-            await asyncio.sleep(30)  # Attendre 30 secondes pour permettre à la VM de démarrer
+                # Vérifier si des applications sont spécifiées
+                if 'application' in data and data['application']:
+                    # Attendre que la VM soit opérationnelle et que SSH soit prêt
+                    await asyncio.sleep(30)  # Ajustez ce temps d'attente selon vos besoins
 
-                        # Vérifier la disponibilité de SSH
-            ipv4 = ipv4_config.split('/')[0] if ipv4_config else None
-            ssh_ready = False
-            while not ssh_ready:
-                try:
-                    if ipv4:
-                        ssh_ready = await self.is_ssh_ready(ipv4)
-                    if not ssh_ready:
-                        await asyncio.sleep(5)  # Attendre 5 secondes avant de réessayer
-                except Exception as e:
-                    self.logger.error(f"Erreur lors de la vérification de SSH: {e}")
-                    await asyncio.sleep(5)  # Attendre et réessayer
+                    # Boucle de vérification de la disponibilité de SSH
+                    ipv4 = ipv4_config.split('/')[0] if ipv4_config else None
+                    ssh_ready = False
+                    while not ssh_ready:
+                        try:
+                            if ipv4:
+                                ssh_ready = await self.is_ssh_ready(ipv4)
+                            if not ssh_ready:
+                                await asyncio.sleep(5)  # Attendre 5 secondes avant de réessayer
+                        except Exception as e:
+                            self.logger.error(f"Erreur lors de la vérification de SSH: {e}")
+                            await asyncio.sleep(5)  # Attendre et réessayer
+
+                    # Exécuter les playbooks Ansible si une application est spécifiée
+                    await self.ansible_manager.run_applications(new_vm_id, data['application'])
 
             
             # Mise à jour de l'inventaire Ansible
