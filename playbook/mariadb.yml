@@ -1,0 +1,39 @@
+---
+- name: Installer et configurer MariaDB
+  hosts: all
+  become: yes
+  tasks:
+    - name: Installation de MariaDB
+      apt:
+        name: mariadb-server
+        state: latest
+
+    - name: Démarrage et activation du service MariaDB
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: Changer le mot de passe root de MariaDB
+      mysql_user:
+        login_user: root
+        login_password: ''
+        user: root
+        password: 'nouveau_mot_de_passe_secure'
+        host_all: yes
+        state: present
+
+    - name: Supprimer les utilisateurs anonymes
+      mysql_user:
+        login_user: root
+        login_password: 'nouveau_mot_de_passe_secure'
+        user: ''
+        host_all: yes
+        state: absent
+
+    - name: Supprimer la base de données 'test'
+      mysql_db:
+        login_user: root
+        login_password: 'nouveau_mot_de_passe_secure'
+        name: test
+        state: absent
