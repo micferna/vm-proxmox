@@ -111,6 +111,7 @@ class ProxmoxVMManager:
             # Mise à jour de l'inventaire Ansible
             ipv4_address = ipv4_config.split('/')[0] if ipv4_config else 'N/A'
             ipv6_address = ipv6_config.split('/')[0] if ipv6_config else 'N/A'
+            
             await self.ansible_manager.update_ansible_inventory(
                 new_vm_id, 
                 ipv4_address,  # Enlever le masque de sous-réseau

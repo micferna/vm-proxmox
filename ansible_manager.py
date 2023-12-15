@@ -24,26 +24,35 @@ class AnsibleManager:
         except (FileNotFoundError, yaml.YAMLError):
             inventory = {}
 
-        # Mettre à jour l'inventaire
         if action == 'add':
             host_entry = {
                 'ansible_host': ipv4,
                 'ansible_ssh_user': self.ssh_user,
                 'ansible_ssh_private_key_file': self.ssh_key_path
-                # Ajoutez d'autres variables spécifiques à l'hôte ici si nécessaire
             }
             inventory['all'] = inventory.get('all', {})
             inventory['all']['hosts'] = inventory['all'].get('hosts', {})
             inventory['all']['hosts'][str(vmid)] = host_entry
 
-        elif action == 'remove' and str(vmid) in inventory['all']['hosts']:
-            del inventory['all']['hosts'][str(vmid)]
+            if application:
+                for app in application.split(','):
+                    app_group = app.replace(' ', '_')
+                    inventory[app_group] = inventory.get(app_group, {'hosts': {}})
+                    inventory[app_group]['hosts'][str(vmid)] = host_entry
 
-        # Sauvegarder l'inventaire mis à jour
+        elif action == 'remove':
+            for group in list(inventory.keys()):
+                if 'hosts' in inventory[group] and str(vmid) in inventory[group]['hosts']:
+                    del inventory[group]['hosts'][str(vmid)]
+                    if not inventory[group]['hosts']:  # Vérifier si le groupe est maintenant vide
+                        del inventory[group]  # Supprimer le groupe s'il est vide
+
         with open(self.inventory_file, 'w') as file:
             yaml.dump(inventory, file, default_flow_style=False)
 
         self.logger.debug(f"Inventaire Ansible mis à jour: {action} VM {vmid}")
+
+
 
     async def run_applications(self, vm_id, applications):
         playbook_dir = os.getenv('PLAYBOOK_DIR', '/chemin/par/defaut/des/playbooks')
