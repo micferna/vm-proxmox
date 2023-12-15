@@ -6,3 +6,4 @@ requests
 pyyaml
 ansible
 ansible-runner
+paramiko
