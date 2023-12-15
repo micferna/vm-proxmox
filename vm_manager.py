@@ -91,11 +91,23 @@ class ProxmoxVMManager:
                 # Démarrer la VM
                 await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.start.post())
 
-            # Vérifier la disponibilité de SSH
-            ipv4 = ipv4_config.split('/')[0] if ipv4_config else None
-            if ipv4 and not await self.is_ssh_ready(ipv4):
-                raise Exception("SSH n'est pas prêt sur la VM.")
+            # Attendre que la VM soit opérationnelle
+            await asyncio.sleep(30)  # Attendre 30 secondes pour permettre à la VM de démarrer
 
+                        # Vérifier la disponibilité de SSH
+            ipv4 = ipv4_config.split('/')[0] if ipv4_config else None
+            ssh_ready = False
+            while not ssh_ready:
+                try:
+                    if ipv4:
+                        ssh_ready = await self.is_ssh_ready(ipv4)
+                    if not ssh_ready:
+                        await asyncio.sleep(5)  # Attendre 5 secondes avant de réessayer
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la vérification de SSH: {e}")
+                    await asyncio.sleep(5)  # Attendre et réessayer
+
+            
             # Mise à jour de l'inventaire Ansible
             ipv4_address = ipv4_config.split('/')[0] if ipv4_config else 'N/A'
             ipv6_address = ipv6_config.split('/')[0] if ipv6_config else 'N/A'
@@ -109,8 +121,8 @@ class ProxmoxVMManager:
             )
 
             # Exécution du playbook si une application est spécifiée
-            if application:
-                await self.ansible_manager.run_ansible_playbook(new_vm_id, application)
+            if 'application' in data:
+                await self.ansible_manager.run_applications(new_vm_id, data['application'])
 
             # Configurer les informations de tâche comme complétées
             tasks[task_id] = {
@@ -120,7 +132,6 @@ class ProxmoxVMManager:
                 'ipv4': ipv4_address,
                 'ipv6': ipv6_address
             }
-
 
         except Exception as e:
             if 'ipv4_config' in locals():
