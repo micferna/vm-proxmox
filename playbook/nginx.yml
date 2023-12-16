@@ -1,5 +1,5 @@
 ---
-- name: Installer NGINX sur une machine Ubuntu
+- name: Installer NGINX
   hosts: all
   become: yes
   tasks:

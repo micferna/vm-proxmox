@@ -6,6 +6,8 @@ import proxmoxer
 import logging
 import yaml
 import os
+import requests
+import socket 
 from concurrent.futures import ThreadPoolExecutor
 from ansible_manager import AnsibleManager
 from delete_manager import DeleteManager
@@ -35,6 +37,17 @@ class ProxmoxVMManager:
     async def update_vm_network_config(self, node, vmid, bridge, ipv4_config=None, ipv4_gateway=None, ipv6_config=None, ipv6_gateway=None):
         return await self.network_config_manager.update_vm_network_config(node, vmid, bridge, ipv4_config, ipv4_gateway, ipv6_config, ipv6_gateway)
 
+
+    async def is_ssh_ready(self, host, retries=5, delay=5):
+        port = int(os.getenv('PORT_SSH', 22))
+        for _ in range(retries):
+            try:
+                with socket.create_connection((host, port), timeout=10):
+                    return True
+            except (socket.timeout, ConnectionRefusedError):
+                await asyncio.sleep(delay)
+        return False
+    
     async def clone_vm_async(self, task_id, data, node, ip_pools, tasks):
         try:
             proxmox = await self.api_manager.get_proxmox_api()
@@ -44,6 +57,7 @@ class ProxmoxVMManager:
             new_vm_id = await self.id_manager.generate_unique_vmid(node)
             new_vm_name = data.get('new_vm_name') or f"MACHINE-{new_vm_id}"
             clone_response = proxmox.nodes(node).qemu(data['source_vm_id']).clone.create(newid=new_vm_id, name=new_vm_name)
+            vm_status = None
             application = data.get('application', None)
 
             vm_config = {
@@ -74,40 +88,55 @@ class ProxmoxVMManager:
             await self.update_vm_network_config(node, new_vm_id, bridge, ipv4_config, selected_pool['gateway_ipv4'], ipv6_config, selected_pool['gateway_ipv6'])
 
             if data.get('start_vm'):
+                # Démarrer la VM
                 await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.start.post())
 
-            vm_status = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).status.current.get())
-            vm_config = await loop.run_in_executor(executor, lambda: proxmox.nodes(node).qemu(new_vm_id).config.get())
-            ipconfig0 = vm_config.get('ipconfig0', '')
+                # Vérifier si des applications sont spécifiées
+                if 'application' in data and data['application']:
+                    # Attendre que la VM soit opérationnelle et que SSH soit prêt
+                    await asyncio.sleep(30)  # Ajustez ce temps d'attente selon vos besoins
 
-            ipv4 = 'N/A'
-            ipv6 = 'N/A'
-            for part in ipconfig0.split(','):
-                if part.startswith('ip='):
-                    ipv4 = part.split('=')[1]
-                elif part.startswith('ip6='):
-                    ipv6 = part.split('=')[1]
+                    # Boucle de vérification de la disponibilité de SSH
+                    ipv4 = ipv4_config.split('/')[0] if ipv4_config else None
+                    ssh_ready = False
+                    while not ssh_ready:
+                        try:
+                            if ipv4:
+                                ssh_ready = await self.is_ssh_ready(ipv4)
+                            if not ssh_ready:
+                                await asyncio.sleep(5)  # Attendre 5 secondes avant de réessayer
+                        except Exception as e:
+                            self.logger.error(f"Erreur lors de la vérification de SSH: {e}")
+                            await asyncio.sleep(5)  # Attendre et réessayer
 
+                    # Exécuter les playbooks Ansible si une application est spécifiée
+                    await self.ansible_manager.run_applications(new_vm_id, data['application'])
+
+            
             # Mise à jour de l'inventaire Ansible
+            ipv4_address = ipv4_config.split('/')[0] if ipv4_config else 'N/A'
+            ipv6_address = ipv6_config.split('/')[0] if ipv6_config else 'N/A'
+            
             await self.ansible_manager.update_ansible_inventory(
-            new_vm_id, 
-            ipv4.split('/')[0],  # Enlever le masque de sous-réseau
-            ipv6.split('/')[0],  # Enlever le masque de sous-réseau
-            'add', 
-            dns_name=new_vm_name,  # Passer new_vm_name comme dns_name
-            application=application
-        )
+                new_vm_id, 
+                ipv4_address,  # Enlever le masque de sous-réseau
+                ipv6_address,  # Enlever le masque de sous-réseau
+                'add', 
+                dns_name=new_vm_name,  # Passer new_vm_name comme dns_name
+                application=application
+            )
 
             # Exécution du playbook si une application est spécifiée
-            if application:
-                await self.ansible_manager.run_ansible_playbook(new_vm_id, application)
+            if 'application' in data:
+                await self.ansible_manager.run_applications(new_vm_id, data['application'])
 
+            # Configurer les informations de tâche comme complétées
             tasks[task_id] = {
                 'status': 'Completed',
-                'vm_status': vm_status.get('status', 'N/A'),
+                'vm_status': vm_status.get('status', 'N/A') if vm_status else 'Unknown',
                 'vmid': new_vm_id,
-                'ipv4': ipv4,
-                'ipv6': ipv6
+                'ipv4': ipv4_address,
+                'ipv6': ipv6_address
             }
 
         except Exception as e:
