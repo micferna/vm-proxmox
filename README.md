@@ -82,7 +82,7 @@ Exemple de demande JSON :
   "ipv6": "2001:db8::1/64",
   "gw6": "2001:db8::1",
   "start_vm": true,
-  "application": "nginx" # Pour lancer le playbook nginx 
+  "application": "nginx mariadb" # Pour lancer le playbook nginx 
 }
 ```
 
