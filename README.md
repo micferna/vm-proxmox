@@ -157,6 +157,9 @@ Exemple de demande : `/list_vms` (pour obtenir la liste de toutes les VMs)
 
 Exemple de demande : `/list_vms/12345` (pour obtenir les détails de la VM avec l'ID 12345)
 
+- `?only_templates=true` : (optionnel) Affichage des templates du Proxmox
+Exemple de demande : `/list_vms/?only_templates=true`
+
 ### Gestion des Tâches
 
 - Le script suit l'état des tâches à l'aide d'identifiants de tâche.

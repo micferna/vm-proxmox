@@ -29,8 +29,8 @@ show_help() {
 # Fonction pour cloner une VM
 clone_vm() {
     local config=""
-    local vm_id=$DEFAULT_VM_ID
-    local new_vm_name=""
+    local vm_id=$DEFAULT_VM_ID  # ID de la VM source par défaut
+    local new_vm_id=""  # Nouvel ID pour la VM clonée
     local dns_name=""
 
     while [[ $# -gt 0 ]]; do
@@ -39,6 +39,11 @@ clone_vm() {
         case $key in
             --dns)
                 dns_name="$2"
+                shift
+                shift
+                ;;
+            --vm_id)
+                new_vm_id="$2"
                 shift
                 shift
                 ;;
@@ -64,24 +69,40 @@ clone_vm() {
         *) echo "Configuration invalide"; exit 1 ;;
     esac
 
-    if [ -n "$dns_name" ]; then
-        new_vm_name="$dns_name"
+    # Vérifier si l'ID de la nouvelle VM est déjà utilisé
+    if [ -n "$new_vm_id" ]; then
+        local vms_list=$(curl -s "$API_URL/list_vms")
+        # Utiliser une commande grep plus précise
+        if echo "$vms_list" | jq '.[] | select(.vmid == '$new_vm_id')' | grep -q "vmid"; then
+            print_color "$RED" "Erreur : L'ID de VM ($new_vm_id) est déjà utilisé."
+            exit 1
+        fi
     fi
 
-    json_data="{\"source_vm_id\": $vm_id, \"new_vm_name\": \"$new_vm_name\", \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true}"
+
+local json_data="{\"source_vm_id\": $vm_id, \"cpu\": $cpu, \"ram\": $ram, \"disk_type\": \"sata0\", \"disk_size\": \"$disk_size\", \"start_vm\": true, \"new_vm_id\": $new_vm_id}"
+if [ -n "$new_vm_id" ]; then
+    json_data="$json_data, \"new_vm_id\": \"$new_vm_id\""
+
+fi
+json_data="$json_data}"
 
     response=$(curl -s -X POST "$API_URL/clone_vm" \
         -H "Content-Type: application/json" \
         -d "$json_data")
 
+    # Afficher la réponse complète pour le débogage
+    echo "Réponse de l'API : $response"
+
     task_id=$(echo $response | jq -r '.task_id')
 
-    if [ "$task_id" == "null" ]; then
-        print_color "$RED" "Erreur lors du clonage de la VM. Task ID est null."
+    if [ "$task_id" == "null" ] || [ -z "$task_id" ]; then
+        print_color "$RED" "Erreur lors du clonage de la VM. Task ID est null ou vide."
         return 1
     fi
 
     print_color "$GREEN" "VM clonée. Task ID: $task_id"
+
     print_color "$YELLOW" "En attente des informations de la VM..."
 
     while :; do
@@ -177,10 +198,11 @@ case $1 in
         show_help
         ;;
     --vm)
-        clone_vm $2 "${@:3}"
+        shift  # Enlever --vm de la liste des arguments
+        clone_vm "$@"
         ;;
     --remove)
-        shift
+        shift  # Enlever --remove de la liste des arguments
         delete_vm "$@"
         ;;
     --list)

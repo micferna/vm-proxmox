@@ -37,6 +37,32 @@ class ProxmoxVMManager:
     async def update_vm_network_config(self, node, vmid, bridge, ipv4_config=None, ipv4_gateway=None, ipv6_config=None, ipv6_gateway=None):
         return await self.network_config_manager.update_vm_network_config(node, vmid, bridge, ipv4_config, ipv4_gateway, ipv6_config, ipv6_gateway)
 
+    async def start_vm_async(self, vm_id, node, task_id, tasks):
+        try:
+            proxmox = await self.api_manager.get_proxmox_api()
+            proxmox.nodes(node).qemu(vm_id).status.start.post()
+            tasks[task_id] = "Success"
+        except Exception as e:
+            tasks[task_id] = "Failed"
+            self.logger.error(f"Erreur lors du démarrage de la VM {vm_id}: {e}")
+
+    async def stop_vm_async(self, vm_id, node, task_id, tasks):
+        try:
+            proxmox = await self.api_manager.get_proxmox_api()
+            proxmox.nodes(node).qemu(vm_id).status.stop.post()
+            tasks[task_id] = "Success"
+        except Exception as e:
+            tasks[task_id] = "Failed"
+            self.logger.error(f"Erreur lors de l'arrêt de la VM {vm_id}: {e}")
+
+    async def reboot_vm_async(self, vm_id, node, task_id, tasks):
+        try:
+            proxmox = await self.api_manager.get_proxmox_api()
+            proxmox.nodes(node).qemu(vm_id).status.reboot.post()
+            tasks[task_id] = "Success"
+        except Exception as e:
+            tasks[task_id] = "Failed"
+            self.logger.error(f"Erreur lors du redémarrage de la VM {vm_id}: {e}")
 
     async def is_ssh_ready(self, host, retries=5, delay=5):
         port = int(os.getenv('PORT_SSH', 22))

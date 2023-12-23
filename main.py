@@ -85,32 +85,77 @@ async def check_status(task_id: str):
     return {"task_id": task_id, "task_info": task_info}
 
 @app.get("/list_vms")
-async def list_vms(vmid: Optional[int] = None):
+async def list_vms(vmid: Optional[int] = None, only_templates: bool = False):
     proxmox = await ProxmoxAPIManager.get_proxmox_api()
     node = os.getenv('PROXMOX_NODE')
     executor = ThreadPoolExecutor()
 
     try:
-        if vmid:
-            detailed_vm_info = await asyncio.get_event_loop().run_in_executor(executor, lambda: proxmox.nodes(node).qemu(vmid).config.get())
-            return detailed_vm_info
-        else:
-            vms = await asyncio.get_event_loop().run_in_executor(executor, lambda: proxmox.nodes(node).qemu.get())
-            vm_details = []
-            for vm in vms:
-                vm_info = await asyncio.get_event_loop().run_in_executor(executor, lambda vm=vm: proxmox.nodes(node).qemu(vm['vmid']).config.get())
-                vm_details.append({
-                    'vmid': vm['vmid'],
-                    'name': vm.get('name', 'N/A'),
-                    'status': vm.get('status', 'N/A'),
-                    'cores': vm_info.get('cores', 'N/A'),
-                    'memory': vm_info.get('memory', 'N/A'),
-                    'ipconfig0': vm_info.get('ipconfig0', 'N/A'),
-                })
-            return vm_details
+        vms = await asyncio.get_event_loop().run_in_executor(executor, lambda: proxmox.nodes(node).qemu.get())
+        vm_details = []
+        for vm in vms:
+            vm_info = await asyncio.get_event_loop().run_in_executor(executor, lambda vm=vm: proxmox.nodes(node).qemu(vm['vmid']).config.get())
+
+            # Vérifiez si la VM est un template
+            is_template = 'template' in vm_info and vm_info['template'] == 1
+
+            if only_templates and not is_template:
+                continue
+            elif not only_templates and is_template:
+                continue
+
+            vm_details.append({
+                'vmid': vm['vmid'],
+                'name': vm.get('name', 'N/A'),
+                'status': vm.get('status', 'N/A'),
+                'cores': vm_info.get('cores', 'N/A'),
+                'memory': vm_info.get('memory', 'N/A'),
+                'ipconfig0': vm_info.get('ipconfig0', 'N/A'),
+            })
+
+        return vm_details
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des informations des VMs: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/start_vm/{vm_id}")
+async def start_vm(vm_id: int):
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = "In Progress"
+
+    proxmox = await ProxmoxAPIManager.get_proxmox_api()
+    node = os.getenv('PROXMOX_NODE')
+    api_manager = ProxmoxAPIManager()
+    vm_manager = ProxmoxVMManager(None, api_manager)
+
+    asyncio.create_task(vm_manager.start_vm_async(vm_id, node, task_id, tasks))
+    return {"task_id": task_id}
+
+@app.post("/stop_vm/{vm_id}")
+async def stop_vm(vm_id: int):
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = "In Progress"
+
+    proxmox = await ProxmoxAPIManager.get_proxmox_api()
+    node = os.getenv('PROXMOX_NODE')
+    api_manager = ProxmoxAPIManager()
+    vm_manager = ProxmoxVMManager(None, api_manager)
+
+    asyncio.create_task(vm_manager.stop_vm_async(vm_id, node, task_id, tasks))
+    return {"task_id": task_id}
+
+@app.post("/reboot_vm/{vm_id}")
+async def reboot_vm(vm_id: int):
+    task_id = uuid.uuid4().hex
+    tasks[task_id] = "In Progress"
+
+    proxmox = await ProxmoxAPIManager.get_proxmox_api()
+    node = os.getenv('PROXMOX_NODE')
+    api_manager = ProxmoxAPIManager()
+    vm_manager = ProxmoxVMManager(None, api_manager)
+
+    asyncio.create_task(vm_manager.reboot_vm_async(vm_id, node, task_id, tasks))
+    return {"task_id": task_id}
 
 # Exécution de l'application avec Uvicorn
 if __name__ == "__main__":
